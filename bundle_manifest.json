@@ -1,0 +1,24 @@
+{
+  "created_at": "2026-06-14T08:39:22.425Z",
+  "bundle_type": "full_torch_training_loop",
+  "live_policy_agent": "torch_policy",
+  "training_loop_script": "scripts/run_torch_full_loop.sh",
+  "includes_windows_node": false,
+  "entries": [
+    "AGENTS.md",
+    "data/teams",
+    "data/datasets/search/phase6_search_improved.jsonl",
+    "data/datasets/search/phase6_search_improved.summary.json",
+    "data/datasets/value/phase4_mixed_q.jsonl",
+    "data/datasets/value/phase4_mixed_q.summary.json",
+    "models/bc_policy/phase6_search_improved",
+    "models/value_model/phase4_mixed_q",
+    "notes/phase6_1_gpu_training.md",
+    "notes/runbook_local_pc.md",
+    "notes/runbook_remote_gpu_server.md",
+    "notes/runbook_hpc_erawan.md",
+    "scripts",
+    "src",
+    "vendor/pokemon-showdown"
+  ]
+}

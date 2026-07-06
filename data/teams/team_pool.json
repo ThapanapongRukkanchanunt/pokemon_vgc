@@ -1,0 +1,264 @@
+{
+  "format_id": "vgc",
+  "format_name": "[Gen 9 Champions] VGC 2026 Reg M-B",
+  "regulation": "M-B",
+  "source_snapshot": "data/teams/vgcpastes_mb_source.csv",
+  "team_preview_policy": "hard_coded_lead_modes_until_universal_preview_network",
+  "selection_notes": [
+    "Selected from VGCPastes Repository (Champions M-B) gid=1458357160.",
+    "Prioritized Champion, Peak 1st, and Runner Up results while keeping representative_mega unique across all 10 teams.",
+    "Imports are exact raw Pokepaste text downloaded from each selected sheet row on 2026-07-06."
+  ],
+  "teams": [
+    {
+      "id": "mb-001",
+      "name": "Goto Crown Fight Floette Metagross",
+      "import_file": "data/teams/imports/mb_001_crown_fight_floette_metagross.txt",
+      "representative_mega": "Floette-Eternal-Mega",
+      "primary_megas": ["Floette-Eternal-Mega", "Metagross-Mega"],
+      "validation": "passed",
+      "source": {
+        "sheet_team_id": "MB95",
+        "description": "Goto's Crown Fight #73 Champion Team",
+        "full_name": "Tomoki Goto",
+        "event": "Crown Fight #73",
+        "rank": "Champion",
+        "date_shared": "20 Jun 2026",
+        "pokepaste": "https://pokepast.es/49d221a71ad77e0b",
+        "replica_code": "U26H4084R5",
+        "source_url": "https://x.com/gototapufinivgc/status/2068118083118768213?s=46",
+        "owner": "gototapufinivgc"
+      },
+      "lead_modes": [
+        {"id": "double_mega_snow", "team_spec": "4163", "leads": ["Floette-Eternal", "Metagross"], "back": ["Ninetales-Alola", "Garchomp"]},
+        {"id": "tailwind_ceruledge", "team_spec": "2541", "leads": ["Talonflame", "Ceruledge"], "back": ["Floette-Eternal", "Metagross"]},
+        {"id": "snow_chomp", "team_spec": "6341", "leads": ["Ninetales-Alola", "Garchomp"], "back": ["Floette-Eternal", "Metagross"]}
+      ]
+    },
+    {
+      "id": "mb-002",
+      "name": "JoeUX9 St. Jude Charizard",
+      "import_file": "data/teams/imports/mb_002_st_jude_charizard.txt",
+      "representative_mega": "Charizard-Mega-Y",
+      "primary_megas": ["Charizard-Mega-Y"],
+      "validation": "passed",
+      "source": {
+        "sheet_team_id": "MB360",
+        "description": "JoeUX9's St. Jude VGC Charity Tournament Champion Team",
+        "full_name": "Joseph Ugarte",
+        "event": "St. Jude Charity Tournament",
+        "rank": "Champion",
+        "date_shared": "28 Jun 2026",
+        "pokepaste": "https://pokepast.es/e2a070c12f1be872",
+        "replica_code": "None",
+        "source_url": "https://x.com/joeux9/status/2071357984299487461?s=46&t=WmXEnVa3rTSw0P9A0n6S3Q",
+        "owner": "joeux9"
+      },
+      "lead_modes": [
+        {"id": "sun_charizard", "team_spec": "1354", "leads": ["Charizard", "Venusaur"], "back": ["Incineroar", "Garchomp"]},
+        {"id": "fakeout_sun", "team_spec": "5136", "leads": ["Incineroar", "Charizard"], "back": ["Venusaur", "Sylveon"]},
+        {"id": "trickroom_sun", "team_spec": "2516", "leads": ["Farigiraf", "Incineroar"], "back": ["Charizard", "Sylveon"]}
+      ]
+    },
+    {
+      "id": "mb-003",
+      "name": "brutetemp Ladder Glimmora Staraptor",
+      "import_file": "data/teams/imports/mb_003_ladder_glimmora_staraptor.txt",
+      "representative_mega": "Glimmora-Mega",
+      "primary_megas": ["Glimmora-Mega", "Staraptor-Mega"],
+      "validation": "passed",
+      "source": {
+        "sheet_team_id": "MB292",
+        "description": "brutetemp's Showdown Ladder Peak 1st Place Team",
+        "full_name": "brutetemp",
+        "event": "Showdown Ladder",
+        "rank": "Peak 1st",
+        "date_shared": "25 Jun 2026",
+        "pokepaste": "https://pokepast.es/d4e2f2167bd00f63",
+        "replica_code": "None",
+        "source_url": "https://x.com/brutetemp/status/2070173617422557313?s=46",
+        "owner": "brutetemp"
+      },
+      "lead_modes": [
+        {"id": "hazard_pressure", "team_spec": "2134", "leads": ["Glimmora", "Staraptor"], "back": ["Kingambit", "Dragapult"]},
+        {"id": "decorate_dragapult", "team_spec": "4523", "leads": ["Dragapult", "Alcremie"], "back": ["Glimmora", "Kingambit"]},
+        {"id": "webs_bulk", "team_spec": "6231", "leads": ["Araquanid", "Glimmora"], "back": ["Kingambit", "Staraptor"]}
+      ]
+    },
+    {
+      "id": "mb-004",
+      "name": "TitanoPigro3 Intimidators Lopunny Swampert",
+      "import_file": "data/teams/imports/mb_004_intimidators_lopunny_swampert.txt",
+      "representative_mega": "Lopunny-Mega",
+      "primary_megas": ["Lopunny-Mega", "Swampert-Mega"],
+      "validation": "passed",
+      "source": {
+        "sheet_team_id": "MB230",
+        "description": "TitanoPigro3's Intimidators Ladder Tour Champion Team",
+        "full_name": "Lorenzo Rizzi",
+        "event": "Intimidators Ladder Tour",
+        "rank": "Champion",
+        "date_shared": "23 Jun 2026",
+        "pokepaste": "https://pokepast.es/ec43f2aa919c3909",
+        "replica_code": "BD4QGBT8DW",
+        "source_url": "https://x.com/TitanoPigro3/status/2069540601305899182",
+        "owner": "TitanoPigro3"
+      },
+      "lead_modes": [
+        {"id": "rain_lopunny", "team_spec": "1354", "leads": ["Lopunny", "Pelipper"], "back": ["Swampert", "Basculegion"]},
+        {"id": "rain_archaludon", "team_spec": "3512", "leads": ["Pelipper", "Swampert"], "back": ["Lopunny", "Archaludon"]},
+        {"id": "friend_guard_rain", "team_spec": "6135", "leads": ["Maushold-Four", "Lopunny"], "back": ["Pelipper", "Swampert"]}
+      ]
+    },
+    {
+      "id": "mb-005",
+      "name": "ege Jet Punch Froslass Scovillain",
+      "import_file": "data/teams/imports/mb_005_jet_punch_froslass_scovillain.txt",
+      "representative_mega": "Froslass-Mega",
+      "primary_megas": ["Froslass-Mega", "Scovillain-Mega"],
+      "validation": "passed",
+      "source": {
+        "sheet_team_id": "MB210",
+        "description": "ege's Palafin Pals Jet Punch Series #2 Champion Team",
+        "full_name": "Shuji ENDO",
+        "event": "Palafin Pals Jet Punch Series #2",
+        "rank": "Champion",
+        "date_shared": "23 Jun 2026",
+        "pokepaste": "https://pokepast.es/9a08df9d69cc892f",
+        "replica_code": "PERANU2QH7",
+        "source_url": "https://x.com/cycleshop_i/status/2069198224406229262?s=46",
+        "owner": "cycleshop_i"
+      },
+      "lead_modes": [
+        {"id": "snow_froslass", "team_spec": "1645", "leads": ["Froslass", "Sneasler"], "back": ["Kingambit", "Basculegion"]},
+        {"id": "pepper_pressure", "team_spec": "2364", "leads": ["Scovillain", "Lycanroc-Dusk"], "back": ["Sneasler", "Kingambit"]},
+        {"id": "aqua_cleanup", "team_spec": "5614", "leads": ["Basculegion", "Sneasler"], "back": ["Froslass", "Kingambit"]}
+      ]
+    },
+    {
+      "id": "mb-006",
+      "name": "castillo11vgc Ladder Blastoise Delphox",
+      "import_file": "data/teams/imports/mb_006_ladder_blastoise_delphox.txt",
+      "representative_mega": "Blastoise-Mega",
+      "primary_megas": ["Blastoise-Mega", "Delphox-Mega"],
+      "validation": "passed",
+      "source": {
+        "sheet_team_id": "MB169",
+        "description": "castillo11vgc's Showdown Ladder Peak 1st Place Team",
+        "full_name": "castillo11vgc",
+        "event": "Showdown Ladder",
+        "rank": "Peak 1st",
+        "date_shared": "22 Jun 2026",
+        "pokepaste": "https://pokepast.es/4d77186dcc0146e4",
+        "replica_code": "None",
+        "source_url": "https://x.com/castillo11vgc/status/2068892468636975492?s=46&t=WmXEnVa3rTSw0P9A0n6S3Q",
+        "owner": "castillo11vgc"
+      },
+      "lead_modes": [
+        {"id": "fakeout_spout", "team_spec": "5416", "leads": ["Incineroar", "Sneasler"], "back": ["Blastoise", "Kingambit"]},
+        {"id": "double_mega_balance", "team_spec": "1352", "leads": ["Blastoise", "Delphox"], "back": ["Incineroar", "Sinistcha"]},
+        {"id": "powder_setup", "team_spec": "2316", "leads": ["Sinistcha", "Delphox"], "back": ["Blastoise", "Kingambit"]}
+      ]
+    },
+    {
+      "id": "mb-007",
+      "name": "fairteew Ladder Blaziken Gengar",
+      "import_file": "data/teams/imports/mb_007_ladder_blaziken_gengar.txt",
+      "representative_mega": "Blaziken-Mega",
+      "primary_megas": ["Blaziken-Mega", "Gengar-Mega"],
+      "validation": "passed",
+      "source": {
+        "sheet_team_id": "MB158",
+        "description": "fairteew's Showdown Ladder Peak 1st Place Team",
+        "full_name": "fairteew",
+        "event": "Showdown Ladder",
+        "rank": "Peak 1st",
+        "date_shared": "21 Jun 2026",
+        "pokepaste": "https://pokepast.es/8027d57ca28fd5b7",
+        "replica_code": "BS93GNQ6CS",
+        "source_url": "https://x.com/fairteew/status/2068742356329742381?s=46",
+        "owner": "fairteew"
+      },
+      "lead_modes": [
+        {"id": "perish_pressure", "team_spec": "6512", "leads": ["Incineroar", "Gengar"], "back": ["Blaziken", "Kingambit"]},
+        {"id": "snow_offense", "team_spec": "4162", "leads": ["Ninetales-Alola", "Blaziken"], "back": ["Incineroar", "Kingambit"]},
+        {"id": "aqua_perish", "team_spec": "3512", "leads": ["Basculegion", "Gengar"], "back": ["Blaziken", "Kingambit"]}
+      ]
+    },
+    {
+      "id": "mb-008",
+      "name": "ansena Tera Square Pyroar Scrafty",
+      "import_file": "data/teams/imports/mb_008_tera_square_pyroar_scrafty.txt",
+      "representative_mega": "Pyroar-Mega",
+      "primary_megas": ["Pyroar-Mega", "Scrafty-Mega"],
+      "validation": "passed",
+      "source": {
+        "sheet_team_id": "MB126",
+        "description": "ansena's Tera Square Offline #2 Champion Team",
+        "full_name": "ansena",
+        "event": "Tera Square Offline #2",
+        "rank": "Champion",
+        "date_shared": "20 Jun 2026",
+        "pokepaste": "https://pokepast.es/f1137c3c585ed29c",
+        "replica_code": "6AS3XFULSE",
+        "source_url": "https://x.com/iruto_ansena/status/2068264226922307847?s=20",
+        "owner": "iruto_ansena"
+      },
+      "lead_modes": [
+        {"id": "sun_pyroar", "team_spec": "6124", "leads": ["Pyroar", "Torkoal"], "back": ["Venusaur", "Scrafty"]},
+        {"id": "fakeout_sun", "team_spec": "4612", "leads": ["Scrafty", "Pyroar"], "back": ["Torkoal", "Venusaur"]},
+        {"id": "trickroom_sun", "team_spec": "3146", "leads": ["Farigiraf", "Torkoal"], "back": ["Scrafty", "Pyroar"]}
+      ]
+    },
+    {
+      "id": "mb-009",
+      "name": "rennyvgc Local Mawile",
+      "import_file": "data/teams/imports/mb_009_local_mawile.txt",
+      "representative_mega": "Mawile-Mega",
+      "primary_megas": ["Mawile-Mega"],
+      "validation": "passed",
+      "source": {
+        "sheet_team_id": "MB290",
+        "description": "rennyvgc's Local Tour Runner Up Team",
+        "full_name": "rennyvgc",
+        "event": "Local Tour",
+        "rank": "Runner Up",
+        "date_shared": "25 Jun 2026",
+        "pokepaste": "https://pokepast.es/80db1a9d56777994",
+        "replica_code": "M3SJTRGNV1",
+        "source_url": "https://x.com/rennyvgc/status/2070058394430717980?s=46",
+        "owner": "rennyvgc"
+      },
+      "lead_modes": [
+        {"id": "sun_mawile", "team_spec": "4563", "leads": ["Mawile", "Torkoal"], "back": ["Vileplume", "Farigiraf"]},
+        {"id": "trickroom_mawile", "team_spec": "3452", "leads": ["Farigiraf", "Mawile"], "back": ["Torkoal", "Scrafty"]},
+        {"id": "scarf_staraptor", "team_spec": "1463", "leads": ["Staraptor", "Mawile"], "back": ["Vileplume", "Farigiraf"]}
+      ]
+    },
+    {
+      "id": "mb-010",
+      "name": "hirseknabe Kickoff Kangaskhan",
+      "import_file": "data/teams/imports/mb_010_kickoff_kangaskhan.txt",
+      "representative_mega": "Kangaskhan-Mega",
+      "primary_megas": ["Kangaskhan-Mega"],
+      "validation": "passed",
+      "source": {
+        "sheet_team_id": "MB128",
+        "description": "hirseknabe's r/VGC Regulation M-B Kickoff Cup Runner Up Team",
+        "full_name": "hirseknabe",
+        "event": "r/VGC Regulation M-B Kickoff Cup",
+        "rank": "Runner Up",
+        "date_shared": "19 Jun 2026",
+        "pokepaste": "https://pokepast.es/b94b2877b5dd4f7d",
+        "replica_code": "H4S1K5J6NA",
+        "source_url": "https://x.com/hirseknabe/status/2067943611639976259?s=46",
+        "owner": "hirseknabe"
+      },
+      "lead_modes": [
+        {"id": "fakeout_sun", "team_spec": "2413", "leads": ["Kangaskhan", "Torkoal"], "back": ["Vileplume", "Farigiraf"]},
+        {"id": "trickroom_kommoo", "team_spec": "3426", "leads": ["Farigiraf", "Torkoal"], "back": ["Kangaskhan", "Kommo-o"]},
+        {"id": "aqua_sun", "team_spec": "5214", "leads": ["Basculegion", "Kangaskhan"], "back": ["Vileplume", "Torkoal"]}
+      ]
+    }
+  ]
+}

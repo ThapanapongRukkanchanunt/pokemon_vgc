@@ -1,5 +1,6 @@
 .venv/
 .venv_*/
+gpu-server.env
 node_modules/
 vendor/pokemon-showdown/node_modules/
 

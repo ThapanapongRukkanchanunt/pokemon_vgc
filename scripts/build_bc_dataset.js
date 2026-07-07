@@ -167,58 +167,64 @@ function buildDataset(args) {
   }
 
   const summary = createSummary(args, datasetPath, summaryPath);
-  const lines = [];
+  const datasetFd = fs.openSync(datasetPath, 'w');
 
-  for (const tracePath of traceFiles) {
-    summary.trace_files += 1;
-    summary.source_trace_files.push(relativePath(tracePath));
-    const rawLines = fs.readFileSync(tracePath, 'utf8').split(/\r?\n/).filter(Boolean);
+  try {
+    for (const tracePath of traceFiles) {
+      summary.trace_files += 1;
+      summary.source_trace_files.push(relativePath(tracePath));
+      const rawLines = fs.readFileSync(tracePath, 'utf8').split(/\r?\n/).filter(Boolean);
 
-    rawLines.forEach((line, index) => {
-      let row;
-      try {
-        row = JSON.parse(line);
-      } catch (error) {
-        summary.skipped.invalid += 1;
-        return;
-      }
+      rawLines.forEach((line, index) => {
+        let row;
+        try {
+          row = JSON.parse(line);
+        } catch (error) {
+          summary.skipped.invalid += 1;
+          return;
+        }
 
-      if (!args.agents.has(row.agent)) {
-        summary.skipped.agent += 1;
-        return;
-      }
-      if (!args.includeRecovery && row.error_recovery) {
-        summary.skipped.recovery += 1;
-        return;
-      }
-      if (!args.includeTeamPreview && requestType(row.request) === 'team_preview') {
-        summary.skipped.team_preview += 1;
-        return;
-      }
+        if (!args.agents.has(row.agent)) {
+          summary.skipped.agent += 1;
+          return;
+        }
+        if (!args.includeRecovery && row.error_recovery) {
+          summary.skipped.recovery += 1;
+          return;
+        }
+        if (!args.includeTeamPreview && requestType(row.request) === 'team_preview') {
+          summary.skipped.team_preview += 1;
+          return;
+        }
 
-      const invalidReason = validateCandidate(row);
-      if (invalidReason) {
-        summary.skipped.invalid += 1;
-        return;
-      }
+        const invalidReason = validateCandidate(row);
+        if (invalidReason) {
+          summary.skipped.invalid += 1;
+          return;
+        }
 
-      const example = buildExample(row, tracePath, index + 1);
-      lines.push(JSON.stringify(example));
+        const example = buildExample(row, tracePath, index + 1);
+        fs.writeSync(datasetFd, `${JSON.stringify(example)}\n`);
 
-      summary.examples += 1;
-      inc(summary.counts.agents, example.agent);
-      inc(summary.counts.request_types, example.request_type);
-      inc(summary.counts.winners, example.winner);
-      inc(summary.counts.winner_sides, example.winner_side);
-      inc(summary.counts.teams, example.team);
-      inc(summary.counts.leads, example.lead);
-      inc(summary.counts.recovery_rows, example.is_recovery);
-    });
+        summary.examples += 1;
+        inc(summary.counts.agents, example.agent);
+        inc(summary.counts.request_types, example.request_type);
+        inc(summary.counts.winners, example.winner);
+        inc(summary.counts.winner_sides, example.winner_side);
+        inc(summary.counts.teams, example.team);
+        inc(summary.counts.leads, example.lead);
+        inc(summary.counts.recovery_rows, example.is_recovery);
+      });
+    }
+  } finally {
+    fs.closeSync(datasetFd);
   }
 
-  if (!summary.examples) throw new Error('No dataset examples were produced with the selected filters');
+  if (!summary.examples) {
+    fs.unlinkSync(datasetPath);
+    throw new Error('No dataset examples were produced with the selected filters');
+  }
 
-  fs.writeFileSync(datasetPath, `${lines.join('\n')}\n`);
   fs.writeFileSync(summaryPath, `${JSON.stringify(summary, null, 2)}\n`);
   return {datasetPath, summaryPath, summary};
 }

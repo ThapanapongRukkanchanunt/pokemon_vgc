@@ -114,3 +114,17 @@ If disk is tight on the server, keep:
 The runner already deletes per-battle logs by default after extracting rollout
 rows. Set `DELETE_ROLLOUTS=1` to remove rollout JSONL files after training each
 iteration.
+
+If the run stops after random bootstrap but before bootstrap policy training,
+reuse the existing traces/dataset instead of replaying the 10,000 random games:
+
+```bash
+NODE_BIN=node \
+PYTHON_BIN="$PWD/.venv_torch/bin/python" \
+TRAIN_DEVICE=cuda \
+TORCH_INFERENCE_DEVICE=cuda \
+RUN_ID=mb_alphastar_league \
+SKIP_BOOTSTRAP_RANDOM=1 \
+SKIP_BOOTSTRAP_BC=1 \
+bash scripts/run_mb_alphastar_league.sh
+```

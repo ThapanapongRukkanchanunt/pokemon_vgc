@@ -34,6 +34,9 @@ COMPACT_LOGS="${COMPACT_LOGS:-1}"
 DELETE_PLAY_LOGS="${DELETE_PLAY_LOGS:-1}"
 DELETE_BOOTSTRAP_LOGS="${DELETE_BOOTSTRAP_LOGS:-0}"
 DELETE_ROLLOUTS="${DELETE_ROLLOUTS:-0}"
+SKIP_BOOTSTRAP_RANDOM="${SKIP_BOOTSTRAP_RANDOM:-0}"
+SKIP_BOOTSTRAP_BC="${SKIP_BOOTSTRAP_BC:-0}"
+SKIP_BOOTSTRAP_POLICY="${SKIP_BOOTSTRAP_POLICY:-0}"
 
 EXPERIMENT_DIR="experiments/mb_alpha_league/${RUN_ID}"
 BOOTSTRAP_DIR="${EXPERIMENT_DIR}/bootstrap"
@@ -95,43 +98,59 @@ echo "=== ${RUN_ID}: validate M-B team pool ==="
 "$NODE_BIN" scripts/validate_team_pool.js
 
 echo
-echo "=== ${RUN_ID}: random bootstrap ${BOOTSTRAP_GAMES} games ==="
-"$NODE_BIN" scripts/generate_random_team_league.js \
-  --run-id "${RUN_ID}_bootstrap_random" \
-  --games "$BOOTSTRAP_GAMES" \
-  --out-dir "$BOOTSTRAP_DIR" \
-  --log-dir "$BOOTSTRAP_LOG_DIR" \
-  --seed "${RUN_ID}:bootstrap" \
-  --progress-every 100 \
-  "${compact_args[@]}" \
-  "${overwrite_args[@]}"
+if [[ "$SKIP_BOOTSTRAP_RANDOM" == "1" ]]; then
+  echo "=== ${RUN_ID}: skip random bootstrap; using existing traces in ${BOOTSTRAP_LOG_DIR} ==="
+  if [[ ! -d "$BOOTSTRAP_LOG_DIR" ]]; then
+    echo "Missing bootstrap trace directory: ${BOOTSTRAP_LOG_DIR}" >&2
+    exit 1
+  fi
+else
+  echo "=== ${RUN_ID}: random bootstrap ${BOOTSTRAP_GAMES} games ==="
+  "$NODE_BIN" scripts/generate_random_team_league.js \
+    --run-id "${RUN_ID}_bootstrap_random" \
+    --games "$BOOTSTRAP_GAMES" \
+    --out-dir "$BOOTSTRAP_DIR" \
+    --log-dir "$BOOTSTRAP_LOG_DIR" \
+    --seed "${RUN_ID}:bootstrap" \
+    --progress-every 100 \
+    "${compact_args[@]}" \
+    "${overwrite_args[@]}"
+fi
 
 echo
-echo "=== ${RUN_ID}: build bootstrap BC dataset ==="
-"$NODE_BIN" scripts/build_bc_dataset.js \
-  --trace-dir "$BOOTSTRAP_LOG_DIR" \
-  --out-dir data/datasets/bc \
-  --name "${RUN_ID}_bootstrap_bc" \
-  --agent random_agent \
-  --overwrite
+if [[ "$SKIP_BOOTSTRAP_BC" == "1" ]]; then
+  echo "=== ${RUN_ID}: skip bootstrap BC build; using ${BOOTSTRAP_BC_DATASET} ==="
+else
+  echo "=== ${RUN_ID}: build bootstrap BC dataset ==="
+  "$NODE_BIN" scripts/build_bc_dataset.js \
+    --trace-dir "$BOOTSTRAP_LOG_DIR" \
+    --out-dir data/datasets/bc \
+    --name "${RUN_ID}_bootstrap_bc" \
+    --agent random_agent \
+    --overwrite
+fi
 require_file "$BOOTSTRAP_BC_DATASET" "bootstrap BC dataset"
 
-if [[ "$DELETE_BOOTSTRAP_LOGS" == "1" ]]; then
+if [[ "$DELETE_BOOTSTRAP_LOGS" == "1" && "$SKIP_BOOTSTRAP_BC" != "1" ]]; then
   echo "Deleting bootstrap battle logs: $BOOTSTRAP_LOG_DIR"
   rm -rf "$BOOTSTRAP_LOG_DIR"
 fi
 
 echo
-echo "=== ${RUN_ID}: train bootstrap policy ==="
-"$PYTHON_BIN" scripts/train_policy_alphastar_torch.py \
-  --dataset "$BOOTSTRAP_BC_DATASET" \
-  --out-dir "models/torch/${RUN_ID}/bootstrap/policy" \
-  --device "$TRAIN_DEVICE" \
-  --epochs "$BOOTSTRAP_BC_EPOCHS" \
-  --batch-size "$BOOTSTRAP_BATCH_SIZE" \
-  --learning-rate "$BOOTSTRAP_LR" \
-  --seed "${RUN_ID}_bootstrap_policy" \
-  --overwrite
+if [[ "$SKIP_BOOTSTRAP_POLICY" == "1" ]]; then
+  echo "=== ${RUN_ID}: skip bootstrap policy training; using ${BOOTSTRAP_CHECKPOINT} ==="
+else
+  echo "=== ${RUN_ID}: train bootstrap policy ==="
+  "$PYTHON_BIN" scripts/train_policy_alphastar_torch.py \
+    --dataset "$BOOTSTRAP_BC_DATASET" \
+    --out-dir "models/torch/${RUN_ID}/bootstrap/policy" \
+    --device "$TRAIN_DEVICE" \
+    --epochs "$BOOTSTRAP_BC_EPOCHS" \
+    --batch-size "$BOOTSTRAP_BATCH_SIZE" \
+    --learning-rate "$BOOTSTRAP_LR" \
+    --seed "${RUN_ID}_bootstrap_policy" \
+    --overwrite
+fi
 require_file "$BOOTSTRAP_CHECKPOINT" "bootstrap policy checkpoint"
 
 CURRENT_MODELS_DIR="models/torch/${RUN_ID}/iter_000/agents"

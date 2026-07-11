@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const {canonicalTeamPreviewChoice} = require('../src/team_preview/preview_actions');
 
 const repoRoot = path.join(__dirname, '..');
 
@@ -67,6 +68,15 @@ function requestType(request) {
   if (Array.isArray(request.active) && request.active.length) return 'move';
   if (request.wait) return 'wait';
   return 'other';
+}
+
+function canonicalizePreviewRow(row) {
+  if (requestType(row.request) !== 'team_preview') return row;
+  return {
+    ...row,
+    chosen_action: canonicalTeamPreviewChoice(row.chosen_action),
+    legal_actions: [...new Set((row.legal_actions || []).map(canonicalTeamPreviewChoice))],
+  };
 }
 
 function winnerSide(winner) {
@@ -183,6 +193,7 @@ function buildDataset(args) {
           summary.skipped.invalid += 1;
           return;
         }
+        row = canonicalizePreviewRow(row);
 
         if (!args.agents.has(row.agent)) {
           summary.skipped.agent += 1;

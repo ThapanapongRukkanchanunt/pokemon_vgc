@@ -23,15 +23,16 @@ Default flow:
 
 1. Validate the 10-team M-B pool.
 2. Play `10000` random-vs-random games across the 10 teams.
-3. Build a BC dataset from random-agent decisions.
-4. Train a bootstrap AlphaStar-like legal-action policy.
-5. Initialize 10 team agents from that bootstrap checkpoint.
-6. Run `10` league iterations.
-7. Each iteration plays `1000` PPO league games between random team-agent pairings.
-8. Each team agent updates its own specialized PPO model from its own rollout rows.
-9. A shared universal preview checkpoint updates from all rollout rows.
-10. Each team agent is evaluated against all 10 teams controlled by the random agent.
-11. A report is written to `experiments/mb_alpha_league/<RUN_ID>/report.json`.
+3. Build a battle-only BC dataset from random-agent decisions.
+4. Build a preview-value replay dataset from the random games.
+5. Train the bootstrap battle policy and a separate universal preview value model.
+6. Initialize 10 team agents from the bootstrap battle-policy checkpoint.
+7. Run `10` league iterations of `1000` games between random team-agent pairings.
+8. Append the selected previews and terminal outcomes to the preview replay dataset.
+9. Update the universal preview value model on the cumulative replay dataset.
+10. Update each specialized PPO model from battle rows for its team; preview rows are excluded.
+11. Evaluate each team agent against all 10 teams controlled by the random agent.
+12. Write `experiments/mb_alpha_league/<RUN_ID>/report.json`.
 
 Important defaults:
 
@@ -48,15 +49,21 @@ ROLLOUT_MAX_DECISIONS=120
 DELETE_PLAY_LOGS=1
 ```
 
-The PPO agent uses epsilon-greedy exploration for both team preview and battle
-actions. The shared team-preview checkpoint is passed through
-`--team-preview-model`; specialized team checkpoints score battle actions.
+The agent uses epsilon-greedy exploration for both team preview and battle
+actions. Team preview enumerates exactly `C(6,2) * C(4,2) = 15 * 6 = 90`
+canonical choices: an unordered lead pair and an unordered back pair. The shared
+preview value model scores all 90 as estimated win probabilities conditioned on
+both six-Pokemon rosters. Training on outcomes across opponent previews makes
+that score an empirical expectation over the opponent's hidden preview policy.
+The highest-scoring preview is selected before epsilon exploration.
+
+The shared preview checkpoint is passed through `--team-preview-model`;
+specialized PPO checkpoints score battle actions.
 For battle actions, the agent takes the model top `TOP_K`, forks the current
 Showdown state with `Battle.fromJSON()`, applies each candidate, and simulates
 forward with model top-1 choices until the clone ends or reaches
 `ROLLOUT_MAX_DECISIONS`. The best rollout result can override the greedy model
-choice before epsilon exploration is applied. Team preview uses the universal
-preview checkpoint directly.
+choice before epsilon exploration is applied.
 
 The neural state encoder includes:
 
@@ -126,5 +133,7 @@ TORCH_INFERENCE_DEVICE=cuda \
 RUN_ID=mb_alphastar_league \
 SKIP_BOOTSTRAP_RANDOM=1 \
 SKIP_BOOTSTRAP_BC=1 \
+SKIP_BOOTSTRAP_PREVIEW_DATASET=1 \
+SKIP_BOOTSTRAP_PREVIEW_MODEL=1 \
 bash scripts/run_mb_alphastar_league.sh
 ```

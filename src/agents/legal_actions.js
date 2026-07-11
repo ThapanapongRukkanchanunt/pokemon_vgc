@@ -11,27 +11,7 @@ const {
   ownActiveTargets,
   switchableSlots,
 } = require('./action_utils');
-
-function orderedSelections(items, size) {
-  if (size <= 0) return [[]];
-  const selections = [];
-  items.forEach((item, index) => {
-    const remaining = items.slice(0, index).concat(items.slice(index + 1));
-    for (const rest of orderedSelections(remaining, size - 1)) {
-      selections.push([item, ...rest]);
-    }
-  });
-  return selections;
-}
-
-function enumerateTeamPreviewActions(request) {
-  const teamSize = request.maxChosenTeamSize || request.side?.pokemon?.length || 0;
-  const slots = (request.side?.pokemon || []).map((_, index) => index + 1);
-  return orderedSelections(slots, teamSize).map(selection => ({
-    choice: `team ${selection.join('')}`,
-    decisions: [{kind: 'team', slots: selection}],
-  }));
-}
+const {enumerateCanonicalTeamPreviewActions} = require('../team_preview/preview_actions');
 
 function moveChoicesForActive({activeData, activeIndex, side, request, battleState, dex, megaUsed}) {
   if (!canActiveSlotAct(request, activeIndex, activeData)) {
@@ -186,7 +166,7 @@ function enumerateForceSwitchActions(request) {
 
 function enumerateLegalActions({side, request, battleState, dex}) {
   if (request.wait) return [];
-  if (isTeamPreviewRequest(request)) return enumerateTeamPreviewActions(request);
+  if (isTeamPreviewRequest(request)) return enumerateCanonicalTeamPreviewActions(request);
   if (request.forceSwitch?.some(Boolean)) return enumerateForceSwitchActions(request);
   if (isMoveRequest(request)) return enumerateMoveActions({side, request, battleState, dex});
   return [{choice: 'default', decisions: [{kind: 'default'}]}];

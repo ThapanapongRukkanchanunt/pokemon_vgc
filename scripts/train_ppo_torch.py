@@ -40,6 +40,7 @@ def parse_args():
     parser.add_argument("--entropy-coef", type=float, default=0.01)
     parser.add_argument("--target-kl", type=float, default=0.03)
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--exclude-request-types", default="")
     parser.add_argument("--seed", default="phase8_ppo")
     parser.add_argument("--iteration", type=int, default=1)
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "cuda"])
@@ -223,7 +224,15 @@ def train(args):
             group["lr"] = args.learning_rate
             group["weight_decay"] = args.weight_decay
 
-    raw_rows = load_jsonl(args.rollouts, args.limit)
+    excluded_request_types = {
+        item.strip() for item in args.exclude_request_types.split(",") if item.strip()
+    }
+    raw_rows = [
+        row for row in load_jsonl(args.rollouts, args.limit)
+        if row.get("request_type", "unknown") not in excluded_request_types
+    ]
+    if not raw_rows:
+        raise SystemExit("No PPO rollout rows remain after request-type filtering")
     rows = add_advantages(raw_rows, args.gamma, args.gae_lambda)
     dataset = PpoRolloutDataset(rows, model_config)
     generator = torch.Generator()
@@ -314,6 +323,7 @@ def train(args):
         "config": vars(args),
         "model_config": model_config,
         "examples": len(rows),
+        "excluded_request_types": sorted(excluded_request_types),
         "trajectories": len({row["trajectory_id"] for row in rows}),
         "history": history,
     }

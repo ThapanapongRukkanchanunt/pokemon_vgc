@@ -1,3 +1,5 @@
+const {canonicalTeamPreviewChoice} = require('../team_preview/preview_actions');
+
 function isFainted(pokemon) {
   return /\bfnt\b/.test(pokemon?.condition || '');
 }
@@ -35,7 +37,7 @@ function chooseForcedSwitches(request, rng, reservedSlots = new Set()) {
 }
 
 function teamPreviewChoice(battleState) {
-  return `team ${battleState.leadMode.team_spec}`;
+  return canonicalTeamPreviewChoice(`team ${battleState.leadMode.team_spec}`);
 }
 
 function isTeamPreviewRequest(request) {

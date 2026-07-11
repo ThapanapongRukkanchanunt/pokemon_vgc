@@ -30,6 +30,7 @@ def parse_args():
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--validation-split", type=float, default=0.2)
+    parser.add_argument("--group-validation-by", default=None)
     parser.add_argument("--eval-every", type=int, default=1)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--seed", default="torch_value")
@@ -78,6 +79,20 @@ def data_loader(examples, model_config, batch_size, shuffle, seed, num_workers):
         collate_fn=collate_value,
         generator=generator,
     )
+
+
+def split_grouped(examples, validation_split, seed, key):
+    if not key:
+        return split_examples(examples, validation_split, seed)
+    groups = {}
+    for index, example in enumerate(examples):
+        group = str(example.get(key, f"missing:{index}"))
+        groups.setdefault(group, []).append(example)
+    group_rows = [{"group": group, "rows": rows} for group, rows in groups.items()]
+    train_groups, validation_groups = split_examples(group_rows, validation_split, seed)
+    train_examples = [row for group in train_groups for row in group["rows"]]
+    validation_examples = [row for group in validation_groups for row in group["rows"]]
+    return train_examples, validation_examples
 
 
 def move_batch(batch, device):
@@ -134,7 +149,9 @@ def train(args):
         global_step = 0
 
     examples = load_jsonl(args.dataset, args.limit)
-    train_examples, validation_examples = split_examples(examples, args.validation_split, args.seed)
+    train_examples, validation_examples = split_grouped(
+        examples, args.validation_split, args.seed, args.group_validation_by
+    )
     print(f"Loaded {len(examples)} examples; train={len(train_examples)} validation={len(validation_examples)}")
 
     model = model_from_config(model_config).to(device)

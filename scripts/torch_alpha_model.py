@@ -216,6 +216,12 @@ def state_tokens(example):
 
 def action_tokens(choice):
     text = re.sub(r"\s+", " ", str(choice or "").strip().lower())
+    team_match = re.fullmatch(r"team (\d+)", text)
+    if team_match:
+        slots = list(team_match.group(1))
+        leads = sorted(slots[:2])
+        backs = sorted(slots[2:])
+        text = "team " + "".join(leads + backs)
     tokens = [f"choice:{text}"]
     commands = [part.strip() for part in text.split(",") if part.strip()]
     kinds = []
@@ -239,6 +245,8 @@ def action_tokens(choice):
         elif kind == "team":
             spec = parts[1] if len(parts) > 1 else ""
             add_token(tokens, f"team_spec:{spec}")
+            add_token(tokens, f"team_lead_pair:{'+'.join(spec[:2])}")
+            add_token(tokens, f"team_back_pair:{'+'.join(spec[2:])}")
             for index, slot in enumerate(spec):
                 add_token(tokens, f"team_pick:{index}:{slot}")
                 if index < 2:

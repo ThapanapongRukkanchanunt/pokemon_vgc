@@ -27,7 +27,9 @@ ROLLOUT_MAX_DECISIONS="${ROLLOUT_MAX_DECISIONS:-120}"
 PPO_EPOCHS="${PPO_EPOCHS:-2}"
 PPO_BATCH_SIZE="${PPO_BATCH_SIZE:-64}"
 PPO_LR="${PPO_LR:-2e-5}"
-UNIVERSAL_PREVIEW_EPOCHS="${UNIVERSAL_PREVIEW_EPOCHS:-1}"
+PREVIEW_VALUE_EPOCHS="${PREVIEW_VALUE_EPOCHS:-${UNIVERSAL_PREVIEW_EPOCHS:-2}}"
+PREVIEW_VALUE_BATCH_SIZE="${PREVIEW_VALUE_BATCH_SIZE:-64}"
+PREVIEW_VALUE_LR="${PREVIEW_VALUE_LR:-3e-4}"
 
 OVERWRITE="${OVERWRITE:-1}"
 COMPACT_LOGS="${COMPACT_LOGS:-1}"
@@ -37,12 +39,16 @@ DELETE_ROLLOUTS="${DELETE_ROLLOUTS:-0}"
 SKIP_BOOTSTRAP_RANDOM="${SKIP_BOOTSTRAP_RANDOM:-0}"
 SKIP_BOOTSTRAP_BC="${SKIP_BOOTSTRAP_BC:-0}"
 SKIP_BOOTSTRAP_POLICY="${SKIP_BOOTSTRAP_POLICY:-0}"
+SKIP_BOOTSTRAP_PREVIEW_DATASET="${SKIP_BOOTSTRAP_PREVIEW_DATASET:-0}"
+SKIP_BOOTSTRAP_PREVIEW_MODEL="${SKIP_BOOTSTRAP_PREVIEW_MODEL:-0}"
 
 EXPERIMENT_DIR="experiments/mb_alpha_league/${RUN_ID}"
 BOOTSTRAP_DIR="${EXPERIMENT_DIR}/bootstrap"
 BOOTSTRAP_LOG_DIR="logs/battles/${RUN_ID}_bootstrap_random"
 BOOTSTRAP_BC_DATASET="data/datasets/bc/${RUN_ID}_bootstrap_bc.jsonl"
 BOOTSTRAP_CHECKPOINT="models/torch/${RUN_ID}/bootstrap/policy/checkpoint.pt"
+PREVIEW_REPLAY_DATASET="data/datasets/preview/${RUN_ID}_preview_replay.jsonl"
+BOOTSTRAP_PREVIEW_CHECKPOINT="models/torch/${RUN_ID}/bootstrap/universal_preview/checkpoint.pt"
 
 overwrite_args=()
 if [[ "$OVERWRITE" == "1" ]]; then
@@ -127,9 +133,22 @@ else
     --out-dir data/datasets/bc \
     --name "${RUN_ID}_bootstrap_bc" \
     --agent random_agent \
+    --exclude-team-preview \
     --overwrite
 fi
 require_file "$BOOTSTRAP_BC_DATASET" "bootstrap BC dataset"
+
+echo
+if [[ "$SKIP_BOOTSTRAP_PREVIEW_DATASET" == "1" ]]; then
+  echo "=== ${RUN_ID}: skip bootstrap preview dataset; using ${PREVIEW_REPLAY_DATASET} ==="
+else
+  echo "=== ${RUN_ID}: build 90-action team-preview value replay ==="
+  "$NODE_BIN" scripts/build_team_preview_dataset.js \
+    --trace-dir "$BOOTSTRAP_LOG_DIR" \
+    --out "$PREVIEW_REPLAY_DATASET" \
+    --overwrite
+fi
+require_file "$PREVIEW_REPLAY_DATASET" "team-preview replay dataset"
 
 if [[ "$DELETE_BOOTSTRAP_LOGS" == "1" && "$SKIP_BOOTSTRAP_BC" != "1" ]]; then
   echo "Deleting bootstrap battle logs: $BOOTSTRAP_LOG_DIR"
@@ -153,6 +172,24 @@ else
 fi
 require_file "$BOOTSTRAP_CHECKPOINT" "bootstrap policy checkpoint"
 
+echo
+if [[ "$SKIP_BOOTSTRAP_PREVIEW_MODEL" == "1" ]]; then
+  echo "=== ${RUN_ID}: skip bootstrap preview value training; using ${BOOTSTRAP_PREVIEW_CHECKPOINT} ==="
+else
+  echo "=== ${RUN_ID}: train bootstrap 90-action team-preview value model ==="
+  "$PYTHON_BIN" scripts/train_value_alphastar_torch.py \
+    --dataset "$PREVIEW_REPLAY_DATASET" \
+    --out-dir "models/torch/${RUN_ID}/bootstrap/universal_preview" \
+    --device "$TRAIN_DEVICE" \
+    --epochs "$PREVIEW_VALUE_EPOCHS" \
+    --batch-size "$PREVIEW_VALUE_BATCH_SIZE" \
+    --learning-rate "$PREVIEW_VALUE_LR" \
+    --group-validation-by battle_id \
+    --seed "${RUN_ID}_bootstrap_preview" \
+    --overwrite
+fi
+require_file "$BOOTSTRAP_PREVIEW_CHECKPOINT" "bootstrap team-preview value checkpoint"
+
 CURRENT_MODELS_DIR="models/torch/${RUN_ID}/iter_000/agents"
 mkdir -p "$CURRENT_MODELS_DIR"
 for team_id in "${TEAM_IDS[@]}"; do
@@ -160,7 +197,7 @@ for team_id in "${TEAM_IDS[@]}"; do
   cp "$BOOTSTRAP_CHECKPOINT" "${CURRENT_MODELS_DIR}/${team_id}/checkpoint.pt"
 done
 
-PREVIEW_MODEL="$BOOTSTRAP_CHECKPOINT"
+PREVIEW_MODEL="$BOOTSTRAP_PREVIEW_CHECKPOINT"
 
 for ((iteration = 1; iteration <= ITERATIONS; iteration++)); do
   tag="$(iteration_tag "$iteration")"
@@ -191,16 +228,23 @@ for ((iteration = 1; iteration <= ITERATIONS; iteration++)); do
     --dataset "data/datasets/rl/${iteration_id}_all_rollouts.jsonl" \
     --summary "data/datasets/rl/${iteration_id}_all_rollouts.validation.json"
 
-  echo
-  echo "=== ${RUN_ID} ${tag}: update universal team-preview model ==="
-  "$PYTHON_BIN" scripts/train_ppo_torch.py \
+  "$NODE_BIN" scripts/build_team_preview_dataset.js \
     --rollouts "data/datasets/rl/${iteration_id}_all_rollouts.jsonl" \
+    --out "$PREVIEW_REPLAY_DATASET" \
+    --append
+
+  echo
+  echo "=== ${RUN_ID} ${tag}: update universal 90-action team-preview value model ==="
+  "$PYTHON_BIN" scripts/train_value_alphastar_torch.py \
+    --dataset "$PREVIEW_REPLAY_DATASET" \
     --out-dir "$preview_out_dir" \
     --init-checkpoint "$PREVIEW_MODEL" \
+    --resume-optimizer \
     --device "$TRAIN_DEVICE" \
-    --epochs "$UNIVERSAL_PREVIEW_EPOCHS" \
-    --batch-size "$PPO_BATCH_SIZE" \
-    --learning-rate "$PPO_LR" \
+    --epochs "$PREVIEW_VALUE_EPOCHS" \
+    --batch-size "$PREVIEW_VALUE_BATCH_SIZE" \
+    --learning-rate "$PREVIEW_VALUE_LR" \
+    --group-validation-by battle_id \
     --iteration "$iteration" \
     --overwrite
   require_file "$preview_next" "universal preview checkpoint"
@@ -224,6 +268,7 @@ for ((iteration = 1; iteration <= ITERATIONS; iteration++)); do
       --epochs "$PPO_EPOCHS" \
       --batch-size "$PPO_BATCH_SIZE" \
       --learning-rate "$PPO_LR" \
+      --exclude-request-types team_preview \
       --iteration "$iteration" \
       --overwrite
     require_file "${next_models_dir}/${team_id}/checkpoint.pt" "trained checkpoint for ${team_id}"

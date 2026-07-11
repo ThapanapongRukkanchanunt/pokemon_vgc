@@ -8,6 +8,7 @@ from torch_alpha_model import (
     action_tokens,
     actor_critic_from_config,
     encode_tokens,
+    model_from_config,
     resolve_device,
     state_tokens,
 )
@@ -23,11 +24,16 @@ def parse_args():
 def load_actor_critic(path, device):
     checkpoint = torch.load(path, map_location=device)
     config = dict(checkpoint["model_config"])
-    config["architecture"] = "alphastar_like_actor_critic_v1"
-    model = actor_critic_from_config(config).to(device)
+    checkpoint_type = checkpoint.get("checkpoint_type")
+    is_value_scorer = checkpoint_type == "alphastar_like_value"
+    if not is_value_scorer:
+        config["architecture"] = "alphastar_like_actor_critic_v1"
+        model = actor_critic_from_config(config).to(device)
+    else:
+        model = model_from_config(config).to(device)
     missing, unexpected = model.load_state_dict(checkpoint["model_state_dict"], strict=False)
     model.eval()
-    return model, config, checkpoint.get("checkpoint_type"), missing, unexpected
+    return model, config, checkpoint_type, missing, unexpected
 
 
 def tensor_from_ids(items, device):
@@ -63,7 +69,7 @@ def score_example(model, config, example, legal_actions, device):
         log_probs = torch.nn.functional.log_softmax(logits, dim=0)
         probabilities = torch.exp(log_probs)
         entropy = -(probabilities * log_probs).sum()
-        value = model.value(state_tensor)[0]
+        value = model.value(state_tensor)[0] if hasattr(model, "value") else torch.sigmoid(logits).max()
     return {
         "scores": [float(value) for value in logits.detach().cpu().tolist()],
         "log_probs": [float(value) for value in log_probs.detach().cpu().tolist()],

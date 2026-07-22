@@ -16,6 +16,7 @@ function parseInteger(value, name) {
 function parseArgs(argv) {
   const args = {
     team: null,
+    packageDir: null,
     modelPath: null,
     modelManifest: null,
     teamPreviewModel: null,
@@ -32,6 +33,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--team') args.team = argv[++i];
+    else if (arg === '--package') args.packageDir = path.resolve(repoRoot, argv[++i]);
     else if (arg === '--model-path') args.modelPath = path.resolve(repoRoot, argv[++i]);
     else if (arg === '--model-manifest') args.modelManifest = path.resolve(repoRoot, argv[++i]);
     else if (arg === '--team-preview-model') args.teamPreviewModel = path.resolve(repoRoot, argv[++i]);
@@ -45,11 +47,16 @@ function parseArgs(argv) {
     else if (arg === '--log-dir') args.logDir = path.resolve(repoRoot, argv[++i]);
     else throw new Error(`Unexpected argument: ${arg}`);
   }
-  if (!args.team) throw new Error('--team is required');
-  if (Boolean(args.modelPath) === Boolean(args.modelManifest)) {
-    throw new Error('Pass exactly one of --model-path or --model-manifest');
+  if (args.packageDir && (args.team || args.modelPath || args.modelManifest || args.teamPreviewModel)) {
+    throw new Error('--package cannot be combined with team/model/preview arguments');
   }
-  if (!args.teamPreviewModel) throw new Error('--team-preview-model is required');
+  if (!args.packageDir) {
+    if (!args.team) throw new Error('--team is required');
+    if (Boolean(args.modelPath) === Boolean(args.modelManifest)) {
+      throw new Error('Pass exactly one of --model-path or --model-manifest');
+    }
+    if (!args.teamPreviewModel) throw new Error('--team-preview-model is required');
+  }
   if (args.games <= 0) throw new Error('--games must be > 0');
   return args;
 }
@@ -81,6 +88,15 @@ function checkpointFromManifest(filePath, teamId) {
 }
 
 async function main(args) {
+  let packageManifest = null;
+  if (args.packageDir) {
+    const manifestPath = path.join(args.packageDir, 'manifest.json');
+    if (!fs.existsSync(manifestPath)) throw new Error(`Missing package manifest: ${manifestPath}`);
+    packageManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    args.team = packageManifest.team_id;
+    args.modelPath = path.resolve(args.packageDir, packageManifest.battle_checkpoint);
+    args.teamPreviewModel = path.resolve(args.packageDir, packageManifest.preview_checkpoint);
+  }
   const credentials = parseEnvFile(args.credentials);
   args.username = args.username || credentials.SHOWDOWN_USERNAME;
   args.password = args.password || credentials.SHOWDOWN_PASSWORD;
@@ -97,6 +113,9 @@ async function main(args) {
   const importText = fs.readFileSync(path.join(repoRoot, team.import_file), 'utf8');
   const packedTeam = validateAndPackTeam({formatId: pool.format_id, importText});
   const formatId = dexForFormat(pool.format_id).id;
+  if (packageManifest?.format_id && packageManifest.format_id !== formatId) {
+    throw new Error(`Package format ${packageManifest.format_id} does not match ${formatId}`);
+  }
   const runId = `ladder_${team.id}_${new Date().toISOString().replace(/[:.]/g, '-')}`;
   fs.mkdirSync(args.logDir, {recursive: true});
   const logPath = path.join(args.logDir, `${runId}.jsonl`);

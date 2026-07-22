@@ -21,8 +21,16 @@ function parseArgs(argv) {
   const args = {
     runId: 'mb_alpha_eval_iter_001',
     modelsDir: path.join(repoRoot, 'models', 'torch', 'mb_alpha_league', 'agents'),
+    modelManifest: null,
+    agentTeams: null,
     teamPreviewModel: null,
     previewMode: 'learned',
+    opponentAgent: 'random',
+    opponentModelsDir: null,
+    opponentModelManifest: null,
+    opponentTeams: null,
+    opponentTeamPreviewModel: null,
+    opponentPreviewMode: 'learned',
     outDir: path.join(repoRoot, 'experiments', 'mb_alpha_league_eval'),
     logDir: null,
     gamesPerPairing: 1,
@@ -43,10 +51,26 @@ function parseArgs(argv) {
       args.runId = argv[++i];
     } else if (arg === '--models-dir') {
       args.modelsDir = path.resolve(repoRoot, argv[++i]);
+    } else if (arg === '--model-manifest') {
+      args.modelManifest = path.resolve(repoRoot, argv[++i]);
+    } else if (arg === '--agent-teams') {
+      args.agentTeams = argv[++i].split(',').map(value => value.trim()).filter(Boolean);
     } else if (arg === '--team-preview-model') {
       args.teamPreviewModel = path.resolve(repoRoot, argv[++i]);
     } else if (arg === '--preview-mode') {
       args.previewMode = argv[++i];
+    } else if (arg === '--opponent-agent') {
+      args.opponentAgent = argv[++i].toLowerCase();
+    } else if (arg === '--opponent-models-dir') {
+      args.opponentModelsDir = path.resolve(repoRoot, argv[++i]);
+    } else if (arg === '--opponent-model-manifest') {
+      args.opponentModelManifest = path.resolve(repoRoot, argv[++i]);
+    } else if (arg === '--opponent-teams') {
+      args.opponentTeams = argv[++i].split(',').map(value => value.trim()).filter(Boolean);
+    } else if (arg === '--opponent-team-preview-model') {
+      args.opponentTeamPreviewModel = path.resolve(repoRoot, argv[++i]);
+    } else if (arg === '--opponent-preview-mode') {
+      args.opponentPreviewMode = argv[++i];
     } else if (arg === '--out-dir') {
       args.outDir = path.resolve(repoRoot, argv[++i]);
     } else if (arg === '--log-dir') {
@@ -83,6 +107,12 @@ function parseArgs(argv) {
   if (!['learned', 'random', 'battle-model'].includes(args.previewMode)) {
     throw new Error('--preview-mode must be learned, random, or battle-model');
   }
+  if (!['random', 'maxdamage', 'heuristic', 'rl'].includes(args.opponentAgent)) {
+    throw new Error('--opponent-agent must be random, maxdamage, heuristic, or rl');
+  }
+  if (!['learned', 'random', 'battle-model'].includes(args.opponentPreviewMode)) {
+    throw new Error('--opponent-preview-mode must be learned, random, or battle-model');
+  }
   if (args.topK <= 0) throw new Error('--top-k must be > 0');
   if (args.rolloutMaxDecisions <= 0) throw new Error('--rollout-max-decisions must be > 0');
   if (!args.seed) args.seed = args.runId;
@@ -114,8 +144,43 @@ function winnerSide(winner) {
   return match ? match[1].toLowerCase() : 'unknown';
 }
 
-function modelPathForTeam(args, teamId) {
-  return path.join(args.modelsDir, teamId, 'checkpoint.pt');
+function loadModelManifest(filePath, label) {
+  if (!filePath) return null;
+  if (!fs.existsSync(filePath)) throw new Error(`Missing ${label}: ${filePath}`);
+  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  const entries = parsed.models || parsed;
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
+    throw new Error(`${label} must be a JSON object mapping team IDs to checkpoints`);
+  }
+  return entries;
+}
+
+function checkpointFromEntry(entry) {
+  if (typeof entry === 'string') return entry;
+  if (entry && typeof entry.checkpoint === 'string') return entry.checkpoint;
+  return null;
+}
+
+function modelPathForTeam({modelsDir, manifest}, teamId) {
+  if (!manifest) return path.join(modelsDir, teamId, 'checkpoint.pt');
+  const checkpoint = checkpointFromEntry(manifest[teamId]);
+  if (!checkpoint) throw new Error(`Model manifest has no checkpoint for ${teamId}`);
+  return path.isAbsolute(checkpoint) ? checkpoint : path.resolve(repoRoot, checkpoint);
+}
+
+function selectTeams(pool, selectors, label) {
+  if (!selectors) return pool.teams;
+  const unique = [];
+  const seen = new Set();
+  for (const selector of selectors) {
+    const team = findTeam(pool, selector, makeRng(`${label}:${selector}`));
+    if (!seen.has(team.id)) {
+      unique.push(team);
+      seen.add(team.id);
+    }
+  }
+  if (!unique.length) throw new Error(`${label} selected no teams`);
+  return unique;
 }
 
 function ensureOutput(args) {
@@ -142,19 +207,29 @@ function compactResultArtifacts(result, deleteTraces) {
   }
 }
 
-function createRlAgent({args, pool, team}) {
-  const useLearnedPreview = args.previewMode === 'learned';
+function createRlAgent({args, pool, team, role = 'agent'}) {
+  const opponent = role === 'opponent';
+  const previewMode = opponent ? args.opponentPreviewMode : args.previewMode;
+  const previewModel = opponent ? args.opponentTeamPreviewModel : args.teamPreviewModel;
+  const modelsDir = opponent ? args.opponentModelsDir : args.modelsDir;
+  const manifest = opponent ? args.opponentModelManifestData : args.modelManifestData;
+  const useLearnedPreview = previewMode === 'learned';
   return createAgent('final_rl', {
     formatId: pool.format_id,
-    modelPath: modelPathForTeam(args, team.id),
-    teamPreviewModelPath: useLearnedPreview ? args.teamPreviewModel : null,
-    teamPreviewMode: args.previewMode === 'random' ? 'random' : 'model',
+    modelPath: modelPathForTeam({modelsDir, manifest}, team.id),
+    teamPreviewModelPath: useLearnedPreview ? previewModel : null,
+    teamPreviewMode: previewMode === 'random' ? 'random' : 'model',
     pythonPath: args.pythonPath,
     torchDevice: args.torchDevice,
     epsilon: 0,
     topK: args.topK,
     sampleActions: false,
   });
+}
+
+function createOpponentAgent({args, pool, team}) {
+  if (args.opponentAgent === 'rl') return createRlAgent({args, pool, team, role: 'opponent'});
+  return createAgent(args.opponentAgent, {formatId: pool.format_id});
 }
 
 function ensureRow(table, teamId) {
@@ -215,8 +290,12 @@ function sideSummary(standings) {
 
 async function evaluate(args) {
   const pool = loadTeamPool();
-  for (const team of pool.teams) {
-    const modelPath = modelPathForTeam(args, team.id);
+  args.modelManifestData = loadModelManifest(args.modelManifest, 'model manifest');
+  args.opponentModelManifestData = loadModelManifest(args.opponentModelManifest, 'opponent model manifest');
+  const agentTeams = selectTeams(pool, args.agentTeams, '--agent-teams');
+  const opponentTeams = selectTeams(pool, args.opponentTeams, '--opponent-teams');
+  for (const team of agentTeams) {
+    const modelPath = modelPathForTeam({modelsDir: args.modelsDir, manifest: args.modelManifestData}, team.id);
     if (!fs.existsSync(modelPath)) throw new Error(`Missing model for ${team.id}: ${modelPath}`);
   }
   if (args.previewMode === 'learned' && !args.teamPreviewModel) {
@@ -225,13 +304,31 @@ async function evaluate(args) {
   if (args.previewMode === 'learned' && !fs.existsSync(args.teamPreviewModel)) {
     throw new Error(`Missing team preview model: ${args.teamPreviewModel}`);
   }
+  if (args.opponentAgent === 'rl') {
+    if (!args.opponentModelsDir && !args.opponentModelManifest) {
+      throw new Error('--opponent-agent rl requires --opponent-models-dir or --opponent-model-manifest');
+    }
+    for (const team of opponentTeams) {
+      const modelPath = modelPathForTeam({
+        modelsDir: args.opponentModelsDir,
+        manifest: args.opponentModelManifestData,
+      }, team.id);
+      if (!fs.existsSync(modelPath)) throw new Error(`Missing opponent model for ${team.id}: ${modelPath}`);
+    }
+    if (args.opponentPreviewMode === 'learned' && !args.opponentTeamPreviewModel) {
+      throw new Error('--opponent-preview-mode learned requires --opponent-team-preview-model');
+    }
+    if (args.opponentPreviewMode === 'learned' && !fs.existsSync(args.opponentTeamPreviewModel)) {
+      throw new Error(`Missing opponent team preview model: ${args.opponentTeamPreviewModel}`);
+    }
+  }
   const outputs = ensureOutput(args);
   const table = new Map();
   const matchups = [];
   let gameIndex = 0;
 
-  for (const agentTeam of pool.teams) {
-    for (const opponentTeam of pool.teams) {
+  for (const agentTeam of agentTeams) {
+    for (const opponentTeam of opponentTeams) {
       const matchup = {
         agent_team: agentTeam.id,
         opponent_team: opponentTeam.id,
@@ -254,8 +351,12 @@ async function evaluate(args) {
             p2Team: rlIsP1 ? opponentTeam : agentTeam,
             p1Lead: findLeadMode(rlIsP1 ? agentTeam : opponentTeam, null, rng),
             p2Lead: findLeadMode(rlIsP1 ? opponentTeam : agentTeam, null, rng),
-            p1Agent: rlIsP1 ? createRlAgent({args, pool, team: agentTeam}) : createAgent('random', {formatId: pool.format_id}),
-            p2Agent: rlIsP1 ? createAgent('random', {formatId: pool.format_id}) : createRlAgent({args, pool, team: agentTeam}),
+            p1Agent: rlIsP1 ?
+              createRlAgent({args, pool, team: agentTeam}) :
+              createOpponentAgent({args, pool, team: opponentTeam}),
+            p2Agent: rlIsP1 ?
+              createOpponentAgent({args, pool, team: opponentTeam}) :
+              createRlAgent({args, pool, team: agentTeam}),
             logDir: args.logDir,
             rng,
             rolloutMaxDecisions: args.rolloutMaxDecisions,
@@ -277,7 +378,10 @@ async function evaluate(args) {
             trace_jsonl_path: args.deleteBattleLogs ? null : result.trace_jsonl_path,
           });
           if (args.compactLogs || args.deleteBattleLogs) compactResultArtifacts(result, args.deleteBattleLogs);
-          console.log(`eval ${gameIndex}: ${agentTeam.id} vs random(${opponentTeam.id}) outcome=${outcome} turns=${result.turns}`);
+          console.log(
+            `eval ${gameIndex}: ${agentTeam.id} vs ${args.opponentAgent}(${opponentTeam.id}) ` +
+            `outcome=${outcome} turns=${result.turns}`
+          );
         }
       }
       matchups.push(matchup);
@@ -289,8 +393,18 @@ async function evaluate(args) {
     created_at: new Date().toISOString(),
     run_id: args.runId,
     models_dir: relativePath(args.modelsDir),
+    model_manifest: args.modelManifest ? relativePath(args.modelManifest) : null,
+    agent_teams: agentTeams.map(team => team.id),
     team_preview_model: args.previewMode === 'learned' ? relativePath(args.teamPreviewModel) : null,
     preview_mode: args.previewMode,
+    opponent_agent: args.opponentAgent,
+    opponent_models_dir: args.opponentModelsDir ? relativePath(args.opponentModelsDir) : null,
+    opponent_model_manifest: args.opponentModelManifest ? relativePath(args.opponentModelManifest) : null,
+    opponent_teams: opponentTeams.map(team => team.id),
+    opponent_team_preview_model: args.opponentAgent === 'rl' && args.opponentPreviewMode === 'learned' ?
+      relativePath(args.opponentTeamPreviewModel) :
+      null,
+    opponent_preview_mode: args.opponentAgent === 'rl' ? args.opponentPreviewMode : null,
     games_per_pairing: args.gamesPerPairing,
     side_swaps: args.sideSwaps,
     top_k: args.topK,

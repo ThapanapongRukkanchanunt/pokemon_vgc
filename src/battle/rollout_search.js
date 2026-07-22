@@ -2,7 +2,11 @@ const path = require('node:path');
 
 const repoRoot = path.join(__dirname, '..', '..');
 const showdownRoot = path.join(repoRoot, 'vendor', 'pokemon-showdown');
-const {Battle} = require(path.join(showdownRoot, 'dist', 'sim', 'battle.js'));
+const {
+  Battle,
+  extractChannelMessages,
+} = require(path.join(showdownRoot, 'dist', 'sim', 'battle.js'));
+const {applySpectatorLineToState, createPublicState} = require('./public_state');
 
 function deepClone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -12,32 +16,13 @@ function sideId(index) {
   return `p${index + 1}`;
 }
 
-function activeCondition(pokemon) {
-  if (!pokemon) return null;
-  if (pokemon.fainted) return '0 fnt';
-  const hp = Number.isFinite(pokemon.hp) ? pokemon.hp : 0;
-  const maxhp = Number.isFinite(pokemon.maxhp) ? pokemon.maxhp : hp;
-  return `${hp}/${maxhp}`;
-}
-
-function activeIdent(side, slot, pokemon) {
-  if (!pokemon) return null;
-  const letter = slot === 0 ? 'a' : 'b';
-  return `${side.id}${letter}: ${pokemon.name || pokemon.species?.name || pokemon.species || 'Pokemon'}`;
-}
-
 function publicStateFromBattle(battle) {
-  const active = {};
-  for (const [index, side] of battle.sides.entries()) {
-    const id = sideId(index);
-    active[id] = side.active.map((pokemon, slot) => pokemon ? {
-      ident: activeIdent(side, slot, pokemon),
-      species: pokemon.species?.name || pokemon.species || pokemon.baseSpecies?.name || null,
-      condition: activeCondition(pokemon),
-      fainted: !!pokemon.fainted,
-    } : null);
+  const publicState = createPublicState();
+  const spectatorLines = extractChannelMessages((battle.log || []).join('\n'), [0])[0];
+  for (const line of spectatorLines) {
+    applySpectatorLineToState(publicState, line);
   }
-  return {active};
+  return publicState;
 }
 
 function requestsFromBattle(battle) {

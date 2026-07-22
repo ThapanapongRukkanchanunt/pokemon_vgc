@@ -13,6 +13,7 @@ function parseArgs(argv) {
   const args = {
     runId: 'mb_alphastar_league',
     iterations: 10,
+    startIteration: 1,
     outDir: null,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -21,6 +22,8 @@ function parseArgs(argv) {
       args.runId = argv[++i];
     } else if (arg === '--iterations') {
       args.iterations = parseInteger(argv[++i], '--iterations');
+    } else if (arg === '--start-iteration') {
+      args.startIteration = parseInteger(argv[++i], '--start-iteration');
     } else if (arg === '--out-dir') {
       args.outDir = path.resolve(repoRoot, argv[++i]);
     } else {
@@ -64,7 +67,8 @@ function collect(args) {
   const bootstrapPolicyMetricsPath = path.join(repoRoot, 'models', 'torch', args.runId, 'bootstrap', 'policy', 'metrics.json');
 
   const iterations = [];
-  for (let iteration = 1; iteration <= args.iterations; iteration++) {
+  const finalIteration = args.startIteration + args.iterations - 1;
+  for (let iteration = args.startIteration; iteration <= finalIteration; iteration++) {
     const tag = iterationTag(iteration);
     const iterationId = `${args.runId}_${tag}`;
     const rolloutSummaryPath = path.join(repoRoot, 'data', 'datasets', 'rl', `${iterationId}_summary.json`);
@@ -93,6 +97,7 @@ function collect(args) {
   const report = {
     created_at: new Date().toISOString(),
     run_id: args.runId,
+    start_iteration: args.startIteration,
     iterations_requested: args.iterations,
     team_pool_path: 'data/teams/team_pool.json',
     bootstrap: {

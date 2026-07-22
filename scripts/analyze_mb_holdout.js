@@ -81,6 +81,19 @@ function outcomes(summary) {
   return result;
 }
 
+function exactTwoSidedBinomial(left, right) {
+  const trials = left + right;
+  if (!trials) return 1;
+  const tail = Math.min(left, right);
+  let probability = Math.pow(0.5, trials);
+  let cumulative = probability;
+  for (let successes = 1; successes <= tail; successes++) {
+    probability *= (trials - successes + 1) / successes;
+    cumulative += probability;
+  }
+  return Math.min(1, 2 * cumulative);
+}
+
 function pairedDifference(selectedSummary, baselineSummary) {
   const selected = outcomes(selectedSummary);
   const baseline = outcomes(baselineSummary);
@@ -99,6 +112,8 @@ function pairedDifference(selectedSummary, baselineSummary) {
     selected_only_wins: selectedOnly,
     baseline_only_wins: baselineOnly,
     net_paired_wins: selectedOnly - baselineOnly,
+    discordant_games: selectedOnly + baselineOnly,
+    exact_mcnemar_p: exactTwoSidedBinomial(selectedOnly, baselineOnly),
   };
 }
 

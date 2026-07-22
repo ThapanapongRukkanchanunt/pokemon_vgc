@@ -45,6 +45,15 @@ and SHA-256 hashes for both checkpoints and the team import. The ladder command
 verifies all three hashes and uses the packaged `team.txt`, so the package can
 be moved without depending on the source run's roster files.
 
+Run the package acceptance battle before laddering:
+
+```bash
+node scripts/smoke_final_agent_package.js \
+  --package models/torch/final_mb_agent \
+  --python .venv_torch/bin/python \
+  --torch-device cpu
+```
+
 ## One Ladder Game
 
 ```bash

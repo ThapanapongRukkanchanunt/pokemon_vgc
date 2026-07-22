@@ -166,6 +166,7 @@ class PpoRolloutDataset(torch.utils.data.Dataset):
             ],
             "action_index": action_index,
             "old_log_prob": float(row.get("log_prob")),
+            "epsilon": min(1.0, max(0.0, float(row.get("epsilon", 0.0)))),
             "return": float(row.get("return")),
             "advantage": float(row.get("normalized_advantage")),
         }
@@ -181,26 +182,28 @@ def collate_ppo(batch):
         })
     collated = collate_policy(policy_like)
     collated["old_log_probs"] = torch.tensor([item["old_log_prob"] for item in batch], dtype=torch.float32)
+    collated["epsilons"] = torch.tensor([item["epsilon"] for item in batch], dtype=torch.float32)
     collated["returns"] = torch.tensor([item["return"] for item in batch], dtype=torch.float32)
     collated["advantages"] = torch.tensor([item["advantage"] for item in batch], dtype=torch.float32)
     return collated
 
 
 def move_batch(batch, device):
-    for key in ["state_ids", "action_ids", "owners", "old_log_probs", "returns", "advantages"]:
+    for key in ["state_ids", "action_ids", "owners", "old_log_probs", "epsilons", "returns", "advantages"]:
         batch[key] = batch[key].to(device)
     return batch
 
 
-def selected_log_probs(logits, offsets, labels):
+def selected_log_probs(logits, offsets, labels, epsilons):
     log_prob_rows = []
     entropy_rows = []
-    for (start, end), label in zip(offsets, labels):
+    for (start, end), label, epsilon in zip(offsets, labels, epsilons):
         row_logits = logits[start:end]
-        row_log_probs = torch.nn.functional.log_softmax(row_logits, dim=0)
-        row_probs = torch.exp(row_log_probs)
-        log_prob_rows.append(row_log_probs[label])
-        entropy_rows.append(-(row_probs * row_log_probs).sum())
+        model_probs = torch.nn.functional.softmax(row_logits, dim=0)
+        behavior_probs = (1 - epsilon) * model_probs + epsilon / len(row_logits)
+        behavior_log_probs = torch.log(behavior_probs.clamp_min(1e-12))
+        log_prob_rows.append(behavior_log_probs[label])
+        entropy_rows.append(-(behavior_probs * behavior_log_probs).sum())
     return torch.stack(log_prob_rows), torch.stack(entropy_rows)
 
 
@@ -250,7 +253,9 @@ def train(args):
     early_stop = False
     started = time.time()
     for epoch in range(1, args.epochs + 1):
-        model.train()
+        # Rollout inference runs with dropout disabled. Keep PPO likelihood
+        # ratios deterministic while retaining gradient tracking.
+        model.eval()
         totals = {
             "examples": 0,
             "policy_loss": 0.0,
@@ -263,7 +268,12 @@ def train(args):
             batch = move_batch(batch, device)
             optimizer.zero_grad(set_to_none=True)
             logits = model(batch["state_ids"], batch["action_ids"], batch["owners"])
-            new_log_probs, entropy = selected_log_probs(logits, batch["offsets"], batch["labels"])
+            new_log_probs, entropy = selected_log_probs(
+                logits,
+                batch["offsets"],
+                batch["labels"],
+                batch["epsilons"],
+            )
             values = model.value(batch["state_ids"])
 
             ratio = torch.exp(new_log_probs - batch["old_log_probs"])
@@ -325,6 +335,7 @@ def train(args):
         "examples": len(rows),
         "excluded_request_types": sorted(excluded_request_types),
         "trajectories": len({row["trajectory_id"] for row in rows}),
+        "behavior_policy": "epsilon_softmax_mixture",
         "history": history,
     }
 

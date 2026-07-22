@@ -176,6 +176,7 @@ function buildRolloutRows({result, tracePath, opponentId, rlSide}) {
       value_prediction: Number(ppo.value_prediction),
       entropy: Number(ppo.entropy),
       selected_probability: Number(ppo.selected_probability),
+      epsilon: Number(ppo.epsilon || 0),
       reward,
       done,
       winner: result.winner,

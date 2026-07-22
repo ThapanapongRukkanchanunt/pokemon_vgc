@@ -239,7 +239,10 @@ function createLeagueAgent({args, pool, team}) {
     torchDevice: args.torchDevice,
     epsilon: args.epsilon,
     topK: args.topK,
-    sampleActions: false,
+    // PPO updates require trajectories sampled from the same stochastic policy
+    // whose log probabilities are recorded. Preview remains greedy + epsilon.
+    sampleActions: true,
+    sampleTeamPreviewActions: false,
   });
 }
 
@@ -332,6 +335,8 @@ async function generate(args) {
     rows: totalRows,
     seed: args.seed,
     epsilon: args.epsilon,
+    battle_action_policy: 'epsilon_softmax_sample',
+    team_preview_policy: 'epsilon_greedy',
     top_k: args.topK,
     rollout_max_decisions: args.rolloutMaxDecisions,
     models_dir: relativePath(args.modelsDir),

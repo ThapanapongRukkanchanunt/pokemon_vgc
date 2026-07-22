@@ -53,6 +53,8 @@ function compactStandings(summary) {
     unknown: row.unknown,
     win_rate: row.win_rate,
     rollout_rows: row.rollout_rows,
+    p1: row.p1,
+    p2: row.p2,
   }));
 }
 
@@ -78,7 +80,12 @@ function collect(args) {
       universal_preview_metrics_path: fs.existsSync(universalMetricsPath) ? relativePath(universalMetricsPath) : null,
       rollout_rows: rolloutSummary?.rows ?? null,
       rollout_games: rolloutSummary?.games_completed ?? null,
+      battle_action_policy: rolloutSummary?.battle_action_policy ?? null,
+      team_preview_policy: rolloutSummary?.team_preview_policy ?? null,
       rollout_standings: compactStandings(rolloutSummary),
+      eval_preview_mode: evalSummary?.preview_mode ?? null,
+      eval_side_swaps: evalSummary?.side_swaps ?? null,
+      eval_side_summary: evalSummary?.side_summary ?? null,
       eval_standings: compactStandings(evalSummary),
     });
   }

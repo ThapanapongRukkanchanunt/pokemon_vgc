@@ -22,13 +22,16 @@ function parseArgs(argv) {
     runId: 'mb_alpha_eval_iter_001',
     modelsDir: path.join(repoRoot, 'models', 'torch', 'mb_alpha_league', 'agents'),
     teamPreviewModel: null,
+    previewMode: 'learned',
     outDir: path.join(repoRoot, 'experiments', 'mb_alpha_league_eval'),
     logDir: null,
     gamesPerPairing: 1,
     seed: null,
     pythonPath: process.env.POKEMON_RL_PYTHON || null,
     torchDevice: process.env.POKEMON_RL_TORCH_DEVICE || null,
-    sideSwaps: false,
+    sideSwaps: true,
+    topK: 1,
+    rolloutMaxDecisions: 120,
     compactLogs: false,
     deleteBattleLogs: false,
     overwrite: false,
@@ -42,6 +45,8 @@ function parseArgs(argv) {
       args.modelsDir = path.resolve(repoRoot, argv[++i]);
     } else if (arg === '--team-preview-model') {
       args.teamPreviewModel = path.resolve(repoRoot, argv[++i]);
+    } else if (arg === '--preview-mode') {
+      args.previewMode = argv[++i];
     } else if (arg === '--out-dir') {
       args.outDir = path.resolve(repoRoot, argv[++i]);
     } else if (arg === '--log-dir') {
@@ -56,6 +61,12 @@ function parseArgs(argv) {
       args.torchDevice = argv[++i];
     } else if (arg === '--side-swaps') {
       args.sideSwaps = true;
+    } else if (arg === '--no-side-swaps') {
+      args.sideSwaps = false;
+    } else if (arg === '--top-k') {
+      args.topK = parseInteger(argv[++i], '--top-k');
+    } else if (arg === '--rollout-max-decisions') {
+      args.rolloutMaxDecisions = parseInteger(argv[++i], '--rollout-max-decisions');
     } else if (arg === '--compact-logs') {
       args.compactLogs = true;
     } else if (arg === '--delete-battle-logs') {
@@ -69,6 +80,11 @@ function parseArgs(argv) {
 
   if (!args.runId || /[\\/:*?"<>|]/.test(args.runId)) throw new Error('--run-id must be filename-safe');
   if (args.gamesPerPairing <= 0) throw new Error('--games-per-pairing must be > 0');
+  if (!['learned', 'random', 'battle-model'].includes(args.previewMode)) {
+    throw new Error('--preview-mode must be learned, random, or battle-model');
+  }
+  if (args.topK <= 0) throw new Error('--top-k must be > 0');
+  if (args.rolloutMaxDecisions <= 0) throw new Error('--rollout-max-decisions must be > 0');
   if (!args.seed) args.seed = args.runId;
   if (!args.logDir) args.logDir = path.join(repoRoot, 'logs', 'battles', `${args.runId}_eval`);
   return args;
@@ -127,36 +143,74 @@ function compactResultArtifacts(result, deleteTraces) {
 }
 
 function createRlAgent({args, pool, team}) {
+  const useLearnedPreview = args.previewMode === 'learned';
   return createAgent('final_rl', {
     formatId: pool.format_id,
     modelPath: modelPathForTeam(args, team.id),
-    teamPreviewModelPath: args.teamPreviewModel,
+    teamPreviewModelPath: useLearnedPreview ? args.teamPreviewModel : null,
+    teamPreviewMode: args.previewMode === 'random' ? 'random' : 'model',
     pythonPath: args.pythonPath,
     torchDevice: args.torchDevice,
     epsilon: 0,
+    topK: args.topK,
     sampleActions: false,
   });
 }
 
 function ensureRow(table, teamId) {
   if (!table.has(teamId)) {
-    table.set(teamId, {team_id: teamId, games: 0, wins: 0, losses: 0, unknown: 0, win_rate: 0});
+    table.set(teamId, {
+      team_id: teamId,
+      games: 0,
+      wins: 0,
+      losses: 0,
+      unknown: 0,
+      win_rate: 0,
+      p1: {games: 0, wins: 0, losses: 0, unknown: 0, win_rate: 0},
+      p2: {games: 0, wins: 0, losses: 0, unknown: 0, win_rate: 0},
+    });
   }
   return table.get(teamId);
 }
 
-function record(table, teamId, result) {
+function record(table, teamId, result, side) {
   const row = ensureRow(table, teamId);
   row.games += 1;
+  row[side].games += 1;
   if (result === 'win') row.wins += 1;
   else if (result === 'loss') row.losses += 1;
   else row.unknown += 1;
+  if (result === 'win') row[side].wins += 1;
+  else if (result === 'loss') row[side].losses += 1;
+  else row[side].unknown += 1;
 }
 
 function finalize(table) {
   return [...table.values()]
-    .map(row => ({...row, win_rate: row.wins + row.losses ? row.wins / (row.wins + row.losses) : 0}))
+    .map(row => ({
+      ...row,
+      win_rate: row.wins + row.losses ? row.wins / (row.wins + row.losses) : 0,
+      p1: {
+        ...row.p1,
+        win_rate: row.p1.wins + row.p1.losses ? row.p1.wins / (row.p1.wins + row.p1.losses) : 0,
+      },
+      p2: {
+        ...row.p2,
+        win_rate: row.p2.wins + row.p2.losses ? row.p2.wins / (row.p2.wins + row.p2.losses) : 0,
+      },
+    }))
     .sort((a, b) => b.win_rate - a.win_rate || b.wins - a.wins || a.team_id.localeCompare(b.team_id));
+}
+
+function sideSummary(standings) {
+  return Object.fromEntries(['p1', 'p2'].map(side => {
+    const total = standings.reduce((accumulator, row) => {
+      for (const key of ['games', 'wins', 'losses', 'unknown']) accumulator[key] += row[side][key];
+      return accumulator;
+    }, {games: 0, wins: 0, losses: 0, unknown: 0});
+    total.win_rate = total.wins + total.losses ? total.wins / (total.wins + total.losses) : 0;
+    return [side, total];
+  }));
 }
 
 async function evaluate(args) {
@@ -165,7 +219,10 @@ async function evaluate(args) {
     const modelPath = modelPathForTeam(args, team.id);
     if (!fs.existsSync(modelPath)) throw new Error(`Missing model for ${team.id}: ${modelPath}`);
   }
-  if (args.teamPreviewModel && !fs.existsSync(args.teamPreviewModel)) {
+  if (args.previewMode === 'learned' && !args.teamPreviewModel) {
+    throw new Error('--preview-mode learned requires --team-preview-model');
+  }
+  if (args.previewMode === 'learned' && !fs.existsSync(args.teamPreviewModel)) {
     throw new Error(`Missing team preview model: ${args.teamPreviewModel}`);
   }
   const outputs = ensureOutput(args);
@@ -201,11 +258,12 @@ async function evaluate(args) {
             p2Agent: rlIsP1 ? createAgent('random', {formatId: pool.format_id}) : createRlAgent({args, pool, team: agentTeam}),
             logDir: args.logDir,
             rng,
+            rolloutMaxDecisions: args.rolloutMaxDecisions,
           });
           const side = winnerSide(result.winner);
           const rlWon = (rlIsP1 && side === 'p1') || (!rlIsP1 && side === 'p2');
           const outcome = side === 'unknown' ? 'unknown' : (rlWon ? 'win' : 'loss');
-          record(table, agentTeam.id, outcome);
+          record(table, agentTeam.id, outcome, rlIsP1 ? 'p1' : 'p2');
           if (outcome === 'win') matchup.wins += 1;
           else if (outcome === 'loss') matchup.losses += 1;
           else matchup.unknown += 1;
@@ -226,18 +284,23 @@ async function evaluate(args) {
     }
   }
 
+  const standings = finalize(table);
   const summary = {
     created_at: new Date().toISOString(),
     run_id: args.runId,
     models_dir: relativePath(args.modelsDir),
-    team_preview_model: args.teamPreviewModel ? relativePath(args.teamPreviewModel) : null,
+    team_preview_model: args.previewMode === 'learned' ? relativePath(args.teamPreviewModel) : null,
+    preview_mode: args.previewMode,
     games_per_pairing: args.gamesPerPairing,
     side_swaps: args.sideSwaps,
+    top_k: args.topK,
+    rollout_max_decisions: args.rolloutMaxDecisions,
     seed: args.seed,
     log_dir: args.deleteBattleLogs ? null : relativePath(args.logDir),
     compact_logs: args.compactLogs,
     delete_battle_logs: args.deleteBattleLogs,
-    standings: finalize(table),
+    side_summary: sideSummary(standings),
+    standings,
     matchups,
   };
   fs.writeFileSync(outputs.summaryPath, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');

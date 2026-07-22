@@ -18,7 +18,9 @@ BOOTSTRAP_LR="${BOOTSTRAP_LR:-3e-4}"
 
 ITERATIONS="${ITERATIONS:-10}"
 LEAGUE_GAMES="${LEAGUE_GAMES:-1000}"
-EVAL_GAMES_PER_PAIRING="${EVAL_GAMES_PER_PAIRING:-1}"
+EVAL_GAMES_PER_PAIRING="${EVAL_GAMES_PER_PAIRING:-3}"
+EVAL_TOP_K="${EVAL_TOP_K:-1}"
+EVAL_SIDE_SWAPS="${EVAL_SIDE_SWAPS:-1}"
 EPSILON_START="${EPSILON_START:-0.20}"
 EPSILON_END="${EPSILON_END:-0.02}"
 TOP_K="${TOP_K:-4}"
@@ -63,6 +65,13 @@ fi
 delete_play_args=()
 if [[ "$DELETE_PLAY_LOGS" == "1" ]]; then
   delete_play_args=(--delete-battle-logs)
+fi
+
+eval_side_args=()
+if [[ "$EVAL_SIDE_SWAPS" == "1" ]]; then
+  eval_side_args=(--side-swaps)
+else
+  eval_side_args=(--no-side-swaps)
 fi
 
 require_file() {
@@ -159,7 +168,7 @@ echo
 if [[ "$SKIP_BOOTSTRAP_POLICY" == "1" ]]; then
   echo "=== ${RUN_ID}: skip bootstrap policy training; using ${BOOTSTRAP_CHECKPOINT} ==="
 else
-  echo "=== ${RUN_ID}: train bootstrap policy ==="
+  echo "=== ${RUN_ID}: train bootstrap actor-critic ==="
   "$PYTHON_BIN" scripts/train_policy_alphastar_torch.py \
     --dataset "$BOOTSTRAP_BC_DATASET" \
     --out-dir "models/torch/${RUN_ID}/bootstrap/policy" \
@@ -167,6 +176,9 @@ else
     --epochs "$BOOTSTRAP_BC_EPOCHS" \
     --batch-size "$BOOTSTRAP_BATCH_SIZE" \
     --learning-rate "$BOOTSTRAP_LR" \
+    --train-value-head \
+    --value-coef 0.5 \
+    --group-validation-by battle_id \
     --seed "${RUN_ID}_bootstrap_policy" \
     --overwrite
 fi
@@ -280,11 +292,15 @@ for ((iteration = 1; iteration <= ITERATIONS; iteration++)); do
     --run-id "${iteration_id}_eval" \
     --models-dir "$next_models_dir" \
     --team-preview-model "$preview_next" \
+    --preview-mode learned \
     --out-dir "${EXPERIMENT_DIR}/eval" \
     --log-dir "logs/battles/${iteration_id}_eval" \
     --games-per-pairing "$EVAL_GAMES_PER_PAIRING" \
+    --top-k "$EVAL_TOP_K" \
+    --rollout-max-decisions "$ROLLOUT_MAX_DECISIONS" \
     --python "$PYTHON_BIN" \
     --torch-device "$TORCH_INFERENCE_DEVICE" \
+    "${eval_side_args[@]}" \
     "${compact_args[@]}" \
     "${delete_play_args[@]}" \
     "${overwrite_args[@]}"

@@ -56,6 +56,18 @@ function validateRow(row, index, errors, counts) {
   for (const field of ['log_prob', 'value_prediction', 'reward']) {
     if (!Number.isFinite(row[field])) errors.push(`row ${index}: ${field} must be finite`);
   }
+  if (Object.prototype.hasOwnProperty.call(row, 'epsilon') &&
+      (!Number.isFinite(row.epsilon) || row.epsilon < 0 || row.epsilon > 1)) {
+    errors.push(`row ${index}: epsilon must be between 0 and 1`);
+  }
+  if (Object.prototype.hasOwnProperty.call(row, 'selected_probability')) {
+    if (!Number.isFinite(row.selected_probability) || row.selected_probability <= 0 || row.selected_probability > 1) {
+      errors.push(`row ${index}: selected_probability must be in (0, 1]`);
+    } else if (Number.isFinite(row.log_prob) &&
+        Math.abs(Math.exp(row.log_prob) - row.selected_probability) > 1e-6) {
+      errors.push(`row ${index}: log_prob does not match selected_probability`);
+    }
+  }
   if (typeof row.done !== 'boolean') errors.push(`row ${index}: done must be boolean`);
   counts.rows += 1;
   counts.done += row.done ? 1 : 0;

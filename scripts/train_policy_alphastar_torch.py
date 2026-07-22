@@ -1,6 +1,7 @@
 import argparse
 import json
 import math
+import random
 import time
 from pathlib import Path
 
@@ -8,8 +9,10 @@ import torch
 from torch.utils.data import DataLoader
 
 from torch_alpha_model import (
+    actor_critic_from_config,
     PolicyDataset,
     collate_policy,
+    create_actor_critic_config,
     create_model_config,
     load_jsonl,
     model_from_config,
@@ -31,7 +34,11 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
+    parser.add_argument("--policy-coef", type=float, default=1.0)
+    parser.add_argument("--value-coef", type=float, default=0.5)
+    parser.add_argument("--train-value-head", action="store_true")
     parser.add_argument("--validation-split", type=float, default=0.2)
+    parser.add_argument("--group-validation-by", default=None)
     parser.add_argument("--eval-every", type=int, default=1)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--seed", default="torch_policy")
@@ -63,8 +70,42 @@ def load_checkpoint(path, device):
     return torch.load(path, map_location=device)
 
 
-def data_loader(examples, model_config, batch_size, shuffle, seed, num_workers):
-    dataset = PolicyDataset(
+class PolicyValueDataset(PolicyDataset):
+    def __getitem__(self, index):
+        item = super().__getitem__(index)
+        target = self.examples[index].get("win_target")
+        if target not in (0, 1):
+            raise ValueError(f"{self.examples[index].get('example_id', index)} win_target must be 0 or 1")
+        item["value_target"] = 1.0 if target == 1 else -1.0
+        return item
+
+
+def collate_policy_value(batch):
+    collated = collate_policy(batch)
+    collated["value_targets"] = torch.tensor([item["value_target"] for item in batch], dtype=torch.float32)
+    return collated
+
+
+def split_training_examples(examples, validation_split, seed, group_field=None):
+    if not group_field:
+        return split_examples(examples, validation_split, seed)
+    groups = {}
+    for example in examples:
+        group = str(example.get(group_field, example.get("example_id", "unknown")))
+        groups.setdefault(group, []).append(example)
+    keys = list(groups)
+    random.Random(seed).shuffle(keys)
+    validation_groups = set(keys[:int(len(keys) * validation_split)])
+    train = []
+    validation = []
+    for key, rows in groups.items():
+        (validation if key in validation_groups else train).extend(rows)
+    return train, validation
+
+
+def data_loader(examples, model_config, batch_size, shuffle, seed, num_workers, train_value_head=False):
+    dataset_type = PolicyValueDataset if train_value_head else PolicyDataset
+    dataset = dataset_type(
         examples,
         vocab_size=model_config["vocab_size"],
         max_state_tokens=model_config["max_state_tokens"],
@@ -77,7 +118,7 @@ def data_loader(examples, model_config, batch_size, shuffle, seed, num_workers):
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=num_workers,
-        collate_fn=collate_policy,
+        collate_fn=collate_policy_value if train_value_head else collate_policy,
         generator=generator,
     )
 
@@ -86,14 +127,18 @@ def move_batch(batch, device):
     batch["state_ids"] = batch["state_ids"].to(device)
     batch["action_ids"] = batch["action_ids"].to(device)
     batch["owners"] = batch["owners"].to(device)
+    if "value_targets" in batch:
+        batch["value_targets"] = batch["value_targets"].to(device)
     return batch
 
 
-def evaluate(model, loader, device):
+def evaluate(model, loader, device, train_value_head=False):
     model.eval()
     total_loss = 0.0
     total_correct = 0
     total_examples = 0
+    total_value_loss = 0.0
+    total_value_correct = 0
     with torch.no_grad():
         for batch in loader:
             batch = move_batch(batch, device)
@@ -102,12 +147,21 @@ def evaluate(model, loader, device):
             total_loss += float(loss.item()) * count
             total_correct += correct
             total_examples += count
-    return {
+            if train_value_head:
+                values = model.value(batch["state_ids"])
+                value_loss = torch.nn.functional.mse_loss(values, batch["value_targets"])
+                total_value_loss += float(value_loss.item()) * count
+                total_value_correct += int(((values >= 0) == (batch["value_targets"] >= 0)).sum().item())
+    metrics = {
         "examples": total_examples,
         "avg_loss": total_loss / total_examples if total_examples else None,
         "accuracy": total_correct / total_examples if total_examples else None,
         "correct": total_correct,
     }
+    if train_value_head:
+        metrics["value_loss"] = total_value_loss / total_examples if total_examples else None
+        metrics["value_accuracy"] = total_value_correct / total_examples if total_examples else None
+    return metrics
 
 
 def train(args):
@@ -124,20 +178,29 @@ def train(args):
 
     checkpoint = load_checkpoint(args.init_checkpoint, device)
     if checkpoint:
-        model_config = checkpoint["model_config"]
+        model_config = dict(checkpoint["model_config"])
+        if args.train_value_head:
+            model_config["architecture"] = "alphastar_like_actor_critic_v1"
         global_step = int(checkpoint.get("global_step", 0))
         print(f"Loaded init checkpoint: {args.init_checkpoint} global_step={global_step}")
     else:
-        model_config = create_model_config(args)
+        model_config = create_actor_critic_config(args) if args.train_value_head else create_model_config(args)
         global_step = 0
 
     examples = load_jsonl(args.dataset, args.limit)
-    train_examples, validation_examples = split_examples(examples, args.validation_split, args.seed)
+    if args.train_value_head:
+        examples = [example for example in examples if example.get("win_target") in (0, 1)]
+    train_examples, validation_examples = split_training_examples(
+        examples,
+        args.validation_split,
+        args.seed,
+        args.group_validation_by,
+    )
     print(f"Loaded {len(examples)} examples; train={len(train_examples)} validation={len(validation_examples)}")
 
-    model = model_from_config(model_config).to(device)
+    model = (actor_critic_from_config(model_config) if args.train_value_head else model_from_config(model_config)).to(device)
     if checkpoint:
-        model.load_state_dict(checkpoint["model_state_dict"])
+        model.load_state_dict(checkpoint["model_state_dict"], strict=not args.train_value_head)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     if checkpoint and args.resume_optimizer and checkpoint.get("optimizer_state_dict"):
@@ -146,17 +209,25 @@ def train(args):
             group["lr"] = args.learning_rate
             group["weight_decay"] = args.weight_decay
 
-    train_loader = data_loader(train_examples, model_config, args.batch_size, True, args.seed, args.num_workers)
-    validation_loader = data_loader(validation_examples, model_config, args.batch_size, False, args.seed, args.num_workers)
+    train_loader = data_loader(
+        train_examples, model_config, args.batch_size, True, args.seed, args.num_workers, args.train_value_head
+    )
+    validation_loader = data_loader(
+        validation_examples, model_config, args.batch_size, False, args.seed, args.num_workers, args.train_value_head
+    )
     history = []
 
     def record(epoch):
-        train_metrics = evaluate(model, train_loader, device)
-        validation_metrics = evaluate(model, validation_loader, device) if validation_examples else None
+        train_metrics = evaluate(model, train_loader, device, args.train_value_head)
+        validation_metrics = evaluate(model, validation_loader, device, args.train_value_head) if validation_examples else None
         history.append({"epoch": epoch, "train": train_metrics, "validation": validation_metrics})
         text = f"epoch={epoch} train_loss={train_metrics['avg_loss']:.4f} train_acc={train_metrics['accuracy']:.3f}"
         if validation_metrics:
             text += f" val_loss={validation_metrics['avg_loss']:.4f} val_acc={validation_metrics['accuracy']:.3f}"
+        if args.train_value_head:
+            text += f" train_value_loss={train_metrics['value_loss']:.4f} train_value_acc={train_metrics['value_accuracy']:.3f}"
+            if validation_metrics:
+                text += f" val_value_loss={validation_metrics['value_loss']:.4f} val_value_acc={validation_metrics['value_accuracy']:.3f}"
         print(text)
 
     record(0)
@@ -168,7 +239,12 @@ def train(args):
             batch = move_batch(batch, device)
             optimizer.zero_grad(set_to_none=True)
             logits = model(batch["state_ids"], batch["action_ids"], batch["owners"])
-            loss, _, count = policy_loss_and_accuracy(logits, batch["offsets"], batch["labels"])
+            policy_loss, _, count = policy_loss_and_accuracy(logits, batch["offsets"], batch["labels"])
+            loss = args.policy_coef * policy_loss
+            if args.train_value_head:
+                values = model.value(batch["state_ids"])
+                value_loss = torch.nn.functional.mse_loss(values, batch["value_targets"])
+                loss = loss + args.value_coef * value_loss
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
@@ -180,8 +256,8 @@ def train(args):
         if epoch == 1 or epoch == args.epochs or epoch % args.eval_every == 0:
             record(epoch)
 
-    final_train = evaluate(model, train_loader, device)
-    final_validation = evaluate(model, validation_loader, device) if validation_examples else None
+    final_train = evaluate(model, train_loader, device, args.train_value_head)
+    final_validation = evaluate(model, validation_loader, device, args.train_value_head) if validation_examples else None
     metrics = {
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "dataset_path": args.dataset,
@@ -201,7 +277,7 @@ def train(args):
     }
 
     torch.save({
-        "checkpoint_type": "alphastar_like_policy",
+        "checkpoint_type": "alphastar_like_actor_critic_bootstrap" if args.train_value_head else "alphastar_like_policy",
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "model_config": model_config,

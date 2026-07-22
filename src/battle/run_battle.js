@@ -193,6 +193,10 @@ async function runBattle({
   rolloutMaxDecisions = 120,
 }) {
   const battleRng = rng || makeRng(seed);
+  const agentRngBySide = {
+    p1: makeRng(`${seed}:p1-agent`),
+    p2: makeRng(`${seed}:p2-agent`),
+  };
   const battleSeed = showdownSeed(battleRng);
   const p1PackedTeam = loadPackedTeam(pool, p1Team);
   const p2PackedTeam = loadPackedTeam(pool, p2Team);
@@ -210,6 +214,7 @@ async function runBattle({
   const lastTraceIndexBySide = {p1: -1, p2: -1};
   const lastDecisionContextBySide = {p1: null, p2: null};
   const errorRecoveryCount = {p1: 0, p2: 0};
+  const pendingRequestsBySide = {p1: null, p2: null};
 
   async function write(line) {
     protocolLog.push(line);
@@ -271,12 +276,26 @@ async function runBattle({
     if (isTurnUpdate(chunk)) turns += 1;
     winner = winnerFromChunk(chunk) || winner;
 
-    const requestsBySide = {
-      p1: requestFromChunk(chunk, 'p1'),
-      p2: requestFromChunk(chunk, 'p2'),
-    };
+    for (const side of ['p1', 'p2']) {
+      const request = requestFromChunk(chunk, side);
+      if (request) pendingRequestsBySide[side] = request;
+    }
+
+    // Showdown emits the two private requests as separate stream chunks. Wait
+    // for both before asking either agent to choose so rollout search receives
+    // the same pre-action battle snapshot on both sides.
+    if (!pendingRequestsBySide.p1 || !pendingRequestsBySide.p2) {
+      if (chunk.startsWith('end\n')) break;
+      continue;
+    }
+
+    const requestsBySide = {...pendingRequestsBySide};
+    pendingRequestsBySide.p1 = null;
+    pendingRequestsBySide.p2 = null;
     const teamsBySide = {p1: p1Team, p2: p2Team};
     const leadsBySide = {p1: p1Lead, p2: p2Lead};
+    const battleSnapshot = stream.battle ? stream.battle.toJSON() : null;
+    const decisions = [];
 
     for (const sideConfig of [
       {side: 'p1', agent: p1Agent, team: p1Team, leadMode: p1Lead},
@@ -285,8 +304,8 @@ async function runBattle({
       const request = requestsBySide[sideConfig.side];
       if (!request) continue;
 
-      const rolloutSearch = stream.battle ? createRolloutSearch({
-        battleSnapshot: stream.battle.toJSON(),
+      const rolloutSearch = battleSnapshot ? createRolloutSearch({
+        battleSnapshot,
         teams: teamsBySide,
         leadModes: leadsBySide,
         maxDecisions: rolloutMaxDecisions,
@@ -311,7 +330,7 @@ async function runBattle({
         side: sideConfig.side,
         request,
         battleState,
-        rng: battleRng,
+        rng: agentRngBySide[sideConfig.side],
       }));
       if (choice) {
         const diagnostics = agentDiagnostics(sideConfig.agent, {
@@ -345,8 +364,12 @@ async function runBattle({
           request,
           publicState: deepClone(publicState),
         };
-        await write(`>${sideConfig.side} ${choice}`);
+        decisions.push({side: sideConfig.side, choice});
       }
+    }
+
+    for (const decision of decisions) {
+      await write(`>${decision.side} ${decision.choice}`);
     }
 
     if (chunk.startsWith('end\n')) break;

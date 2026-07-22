@@ -94,6 +94,23 @@ function topKIndices(scores, k) {
     .map(entry => entry.index);
 }
 
+function behaviorPolicyProbability({
+  actionIndex,
+  probabilities,
+  exploitationIndex,
+  epsilon,
+  sampled,
+  uniform = false,
+}) {
+  if (!probabilities.length) return 0;
+  const uniformProbability = 1 / probabilities.length;
+  if (uniform) return uniformProbability;
+  if (sampled) {
+    return (1 - epsilon) * (probabilities[actionIndex] || 0) + epsilon * uniformProbability;
+  }
+  return (actionIndex === exploitationIndex ? 1 - epsilon : 0) + epsilon * uniformProbability;
+}
+
 class PpoPolicyScorer {
   constructor({modelPath, pythonPath = null, device = 'auto'} = {}) {
     this.modelPath = resolveRepoPath(modelPath);
@@ -247,6 +264,8 @@ function createPpoPolicyAgent({
   torchDevice = null,
   formatId = 'vgc',
   sampleActions = false,
+  sampleTeamPreviewActions = sampleActions,
+  teamPreviewMode = 'model',
   epsilon = 0,
   topK = 1,
   fallbackConfidence = 0,
@@ -265,6 +284,10 @@ function createPpoPolicyAgent({
   const belief = useHmmBelief ? new HMMBeliefState() : null;
   const explorationEpsilon = clamp01(epsilon);
   const requestedTopK = Math.max(1, Number.isInteger(topK) ? topK : Number(topK) || 1);
+  const previewSelectionMode = String(teamPreviewMode || 'model').toLowerCase();
+  if (!['model', 'random'].includes(previewSelectionMode)) {
+    throw new Error(`Unknown teamPreviewMode: ${teamPreviewMode}`);
+  }
 
   async function scorePolicyRequest({side, request, battleState, diagnostics = null}) {
     const dex = dexForFormat(formatId);
@@ -335,10 +358,16 @@ function createPpoPolicyAgent({
         scores,
       } = scored;
       const topIndices = topKIndices(scores, Math.min(requestedTopK, choices.length));
-      let actionIndex = sampleActions ? pickIndex(probabilities, rng) : bestIndex(scores);
+      const randomPreview = requestIsTeamPreview && previewSelectionMode === 'random';
+      const shouldSample = sampleActions && (!requestIsTeamPreview || sampleTeamPreviewActions);
+      let exploitationIndex = bestIndex(scores);
+      let actionIndex = randomPreview ?
+        Math.floor((rng ? rng.next() : Math.random()) * choices.length) :
+        (shouldSample ? pickIndex(probabilities, rng) : exploitationIndex);
       let rolloutSearch = null;
       if (
-        !sampleActions &&
+        !shouldSample &&
+        !randomPreview &&
         !requestIsTeamPreview &&
         requestedTopK > 1 &&
         sideBattleState?.rolloutSearch &&
@@ -355,28 +384,37 @@ function createPpoPolicyAgent({
           selectTopAction: selectTopModelAction,
         });
         if (Number.isInteger(rolloutSearch?.best?.index)) {
-          actionIndex = rolloutSearch.best.index;
+          exploitationIndex = rolloutSearch.best.index;
+          actionIndex = exploitationIndex;
         }
       }
+      if (
+        !shouldSample &&
+        !randomPreview &&
+        fallbackConfidence > 0 &&
+        (probabilities[exploitationIndex] || 0) < fallbackConfidence
+      ) {
+        exploitationIndex = bestIndex(scores);
+        actionIndex = exploitationIndex;
+      }
       let explored = false;
-      if (explorationEpsilon > 0 && (rng ? rng.next() : Math.random()) < explorationEpsilon) {
+      if (
+        !randomPreview &&
+        explorationEpsilon > 0 &&
+        (rng ? rng.next() : Math.random()) < explorationEpsilon
+      ) {
         actionIndex = rng ? Math.floor(rng.next() * choices.length) : Math.floor(Math.random() * choices.length);
         explored = true;
       }
-      const uniformProbability = 1 / choices.length;
-      let modelProbability = probabilities[actionIndex] || 0;
-      let selectedProbability =
-        explorationEpsilon > 0 ?
-          (1 - explorationEpsilon) * modelProbability + explorationEpsilon * uniformProbability :
-          modelProbability;
-      if (fallbackConfidence > 0 && selectedProbability < fallbackConfidence) {
-        actionIndex = bestIndex(scores);
-        modelProbability = probabilities[actionIndex] || 0;
-        selectedProbability =
-          explorationEpsilon > 0 ?
-            (1 - explorationEpsilon) * modelProbability + explorationEpsilon * uniformProbability :
-            modelProbability;
-      }
+      const modelProbability = probabilities[actionIndex] || 0;
+      const selectedProbability = behaviorPolicyProbability({
+        actionIndex,
+        probabilities,
+        exploitationIndex,
+        epsilon: explorationEpsilon,
+        sampled: shouldSample,
+        uniform: randomPreview,
+      });
       const logProb = Math.log(Math.max(selectedProbability, 1e-12));
       this.lastDiagnostics = {
         ...(hmmDiagnostics || {}),
@@ -390,6 +428,7 @@ function createPpoPolicyAgent({
           model_probability: modelProbability,
           epsilon: explorationEpsilon,
           epsilon_explored: explored,
+          team_preview_mode: requestIsTeamPreview ? previewSelectionMode : undefined,
           top_k: topIndices.map(index => ({
             index,
             action: choices[index],
@@ -416,7 +455,7 @@ function createPpoPolicyAgent({
               error: candidate.error,
             })),
           } : undefined,
-          sampled: !!sampleActions,
+          sampled: shouldSample,
           model_path: requestIsTeamPreview ? relativePreviewModelPath : relativeModelPath,
           battle_model_path: relativeModelPath,
           team_preview_model_path: relativePreviewModelPath,
@@ -431,6 +470,7 @@ function createPpoPolicyAgent({
 }
 
 module.exports = {
+  behaviorPolicyProbability,
   closePpoPolicyScorers,
   createPpoPolicyAgent,
   exampleFromBattle,

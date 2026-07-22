@@ -41,7 +41,9 @@ node scripts/package_final_agent.js \
 ```
 
 `manifest.json` records the selected team, source checkpoints, inference mode,
-and SHA-256 hashes for both checkpoints and the team import.
+and SHA-256 hashes for both checkpoints and the team import. The ladder command
+verifies all three hashes and uses the packaged `team.txt`, so the package can
+be moved without depending on the source run's roster files.
 
 ## One Ladder Game
 

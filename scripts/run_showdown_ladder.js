@@ -3,7 +3,8 @@ const path = require('node:path');
 const {closeTorchPolicyScorers, createAgent} = require('../src/agents');
 const {findTeam, loadTeamPool} = require('../src/battle/run_battle');
 const {dexForFormat, validateAndPackTeam} = require('../src/battle/showdown_protocol');
-const {ShowdownLadderClient} = require('../src/showdown_ladder');
+const {loadFinalAgentPackage} = require('../src/final_agent_package');
+const {ShowdownLadderClient, teamSummaryFromSets} = require('../src/showdown_ladder');
 
 const repoRoot = path.join(__dirname, '..');
 
@@ -89,13 +90,27 @@ function checkpointFromManifest(filePath, teamId) {
 
 async function main(args) {
   let packageManifest = null;
+  let packageData = null;
+  let team = null;
+  let importText = null;
+  let formatId = null;
   if (args.packageDir) {
-    const manifestPath = path.join(args.packageDir, 'manifest.json');
-    if (!fs.existsSync(manifestPath)) throw new Error(`Missing package manifest: ${manifestPath}`);
-    packageManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    packageData = loadFinalAgentPackage(args.packageDir);
+    packageManifest = packageData.manifest;
     args.team = packageManifest.team_id;
-    args.modelPath = path.resolve(args.packageDir, packageManifest.battle_checkpoint);
-    args.teamPreviewModel = path.resolve(args.packageDir, packageManifest.preview_checkpoint);
+    args.modelPath = packageData.battleModelPath;
+    args.teamPreviewModel = packageData.previewModelPath;
+    team = {
+      id: packageManifest.team_id,
+      name: packageManifest.team_name || packageManifest.team_id,
+      team_summary: teamSummaryFromSets(
+        packageData.sets,
+        packageManifest.team_id,
+        packageManifest.team_name || packageManifest.team_id
+      ),
+    };
+    importText = packageData.teamImportText;
+    formatId = dexForFormat(packageManifest.format_id).id;
   }
   const credentials = parseEnvFile(args.credentials);
   args.username = args.username || credentials.SHOWDOWN_USERNAME;
@@ -104,15 +119,15 @@ async function main(args) {
     throw new Error('Set SHOWDOWN_USERNAME and SHOWDOWN_PASSWORD in showdown.env or the environment');
   }
 
-  const pool = loadTeamPool();
-  const team = findTeam(pool, args.team, {pick: items => items[0]});
+  const pool = packageData ? null : loadTeamPool();
+  team = team || findTeam(pool, args.team, {pick: items => items[0]});
   const modelPath = args.modelPath || checkpointFromManifest(args.modelManifest, team.id);
   for (const [label, filePath] of [['agent checkpoint', modelPath], ['preview checkpoint', args.teamPreviewModel]]) {
     if (!fs.existsSync(filePath)) throw new Error(`Missing ${label}: ${filePath}`);
   }
-  const importText = fs.readFileSync(path.join(repoRoot, team.import_file), 'utf8');
-  const packedTeam = validateAndPackTeam({formatId: pool.format_id, importText});
-  const formatId = dexForFormat(pool.format_id).id;
+  importText = importText || fs.readFileSync(path.join(repoRoot, team.import_file), 'utf8');
+  formatId = formatId || dexForFormat(pool.format_id).id;
+  const packedTeam = validateAndPackTeam({formatId, importText});
   if (packageManifest?.format_id && packageManifest.format_id !== formatId) {
     throw new Error(`Package format ${packageManifest.format_id} does not match ${formatId}`);
   }
@@ -122,7 +137,7 @@ async function main(args) {
   const summaryPath = path.join(args.logDir, `${runId}.summary.json`);
 
   const agent = createAgent('final_rl', {
-    formatId: pool.format_id,
+    formatId,
     modelPath,
     teamPreviewModelPath: args.teamPreviewModel,
     pythonPath: args.pythonPath,
@@ -151,6 +166,7 @@ async function main(args) {
     team_id: team.id,
     model_path: path.relative(repoRoot, modelPath).replace(/\\/g, '/'),
     team_preview_model: path.relative(repoRoot, args.teamPreviewModel).replace(/\\/g, '/'),
+    package_manifest: packageData ? path.relative(repoRoot, packageData.manifestPath).replace(/\\/g, '/') : null,
     log_path: path.relative(repoRoot, logPath).replace(/\\/g, '/'),
     ...result,
   };

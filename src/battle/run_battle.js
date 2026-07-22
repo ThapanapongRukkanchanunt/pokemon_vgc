@@ -11,6 +11,7 @@ const {
 } = require('./showdown_protocol');
 const {replayHtml} = require('./replay_export');
 const {createRolloutSearch} = require('./rollout_search');
+const {applySpectatorLineToState, createPublicState} = require('./public_state');
 const {enumerateLegalActionChoices} = require('../agents/legal_actions');
 
 const repoRoot = path.join(__dirname, '..', '..');
@@ -102,69 +103,6 @@ function sideSummary(team, leadMode) {
 
 function deepClone(value) {
   return JSON.parse(JSON.stringify(value));
-}
-
-function sideFromIdent(ident) {
-  const match = /^(p[12])([ab]):/.exec(ident || '');
-  if (!match) return null;
-  return {side: match[1], slot: match[2] === 'a' ? 0 : 1};
-}
-
-function speciesFromDetails(details) {
-  return (details || '').split(',')[0].trim();
-}
-
-function createPublicState() {
-  return {
-    active: {
-      p1: [null, null],
-      p2: [null, null],
-    },
-  };
-}
-
-function applySpectatorLineToState(publicState, line) {
-  const parts = line.split('|');
-  const type = parts[1];
-  if (!type) return;
-
-  if (['switch', 'drag', 'replace'].includes(type)) {
-    const parsed = sideFromIdent(parts[2]);
-    if (!parsed) return;
-    publicState.active[parsed.side][parsed.slot] = {
-      ident: parts[2],
-      species: speciesFromDetails(parts[3]),
-      condition: parts[4] || null,
-      fainted: false,
-    };
-    return;
-  }
-
-  if (['detailschange', '-formechange'].includes(type)) {
-    const parsed = sideFromIdent(parts[2]);
-    if (!parsed || !publicState.active[parsed.side][parsed.slot]) return;
-    publicState.active[parsed.side][parsed.slot].species = speciesFromDetails(parts[3]);
-    publicState.active[parsed.side][parsed.slot].fainted = false;
-    return;
-  }
-
-  if (type === 'faint') {
-    const parsed = sideFromIdent(parts[2]);
-    if (!parsed || !publicState.active[parsed.side][parsed.slot]) return;
-    publicState.active[parsed.side][parsed.slot].fainted = true;
-    publicState.active[parsed.side][parsed.slot].condition = '0 fnt';
-    return;
-  }
-
-  if (['-damage', '-heal', '-sethp'].includes(type)) {
-    const parsed = sideFromIdent(parts[2]);
-    if (!parsed || !publicState.active[parsed.side][parsed.slot]) return;
-    const condition = parts[3] || null;
-    publicState.active[parsed.side][parsed.slot].condition = condition;
-    if (condition && /\bfnt\b/.test(condition)) {
-      publicState.active[parsed.side][parsed.slot].fainted = true;
-    }
-  }
 }
 
 function errorSideFromChunk(chunk) {

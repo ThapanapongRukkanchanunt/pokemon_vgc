@@ -2,6 +2,7 @@
 .venv_*/
 .venv_torch
 gpu-server.env
+showdown.env
 node_modules/
 vendor/pokemon-showdown/node_modules/
 

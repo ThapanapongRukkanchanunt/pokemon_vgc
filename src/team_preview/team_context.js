@@ -32,6 +32,16 @@ function parseSetBlock(block, slot) {
 }
 
 function loadTeamSummary(team) {
+  if (team?.team_summary) return team.team_summary;
+  if (Array.isArray(team?.sets)) {
+    return {
+      id: team.id || 'dynamic-team',
+      name: team.name || team.id || 'Dynamic team',
+      representative_mega: team.representative_mega || null,
+      primary_megas: team.primary_megas || [],
+      sets: team.sets,
+    };
+  }
   if (!team?.import_file) return null;
   if (teamSummaryCache.has(team.id)) return teamSummaryCache.get(team.id);
   const importPath = path.resolve(repoRoot, team.import_file);
@@ -57,11 +67,26 @@ function activeSpecies(publicState, side) {
     .map(active => active.species));
 }
 
+function normalizedSpecies(species) {
+  return String(species || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function speciesSet(values) {
+  return new Set(Array.from(values || []).map(normalizedSpecies).filter(Boolean));
+}
+
 function predictedBackMons(teamSummary, publicState, foeSide) {
   if (!teamSummary) return [];
-  const actives = activeSpecies(publicState, foeSide);
+  const actives = speciesSet(activeSpecies(publicState, foeSide));
+  const revealed = speciesSet(publicState?.revealed?.[foeSide]);
+  const fainted = speciesSet(publicState?.fainted?.[foeSide]);
+  const selectedKnown = revealed.size >= 4;
   return teamSummary.sets
-    .filter(set => !actives.has(set.species))
+    .filter(set => {
+      const species = normalizedSpecies(set.species);
+      if (actives.has(species) || fainted.has(species)) return false;
+      return !selectedKnown || revealed.has(species);
+    })
     .map(set => ({
       slot: set.slot,
       species: set.species,
@@ -69,6 +94,8 @@ function predictedBackMons(teamSummary, publicState, foeSide) {
       ability: set.ability,
       nature: set.nature,
       evs: set.evs,
+      revealed: revealed.has(normalizedSpecies(set.species)),
+      selected_known: selectedKnown,
     }));
 }
 

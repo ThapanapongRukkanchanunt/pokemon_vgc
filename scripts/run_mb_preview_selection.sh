@@ -12,6 +12,7 @@ SOURCE_RUN_ID="${SOURCE_RUN_ID:-mb_alphastar_fairppo90}"
 SELECTION_ID="${SELECTION_ID:-${SOURCE_RUN_ID}_preview_selection}"
 MODEL_MANIFEST="${MODEL_MANIFEST:-experiments/mb_alpha_league/${SOURCE_RUN_ID}/selection/${SOURCE_RUN_ID}_checkpoint_selection_manifest.json}"
 GAMES_PER_PAIRING="${GAMES_PER_PAIRING:-3}"
+PREVIEW_ITERATIONS="${PREVIEW_ITERATIONS:-005 006 010}"
 OUT_DIR="${OUT_DIR:-experiments/mb_alpha_league/${SOURCE_RUN_ID}/preview_selection}"
 
 [[ -f "$MODEL_MANIFEST" ]] || { echo "Missing selected model manifest: $MODEL_MANIFEST" >&2; exit 1; }
@@ -19,7 +20,7 @@ mkdir -p "$OUT_DIR"
 candidate_args=()
 baseline_args=()
 
-for iteration in 005 006 010; do
+for iteration in $PREVIEW_ITERATIONS; do
   id="preview_iter_${iteration}"
   checkpoint="models/torch/${SOURCE_RUN_ID}/iter_${iteration}/universal_preview/checkpoint.pt"
   run_id="${SELECTION_ID}_${id}"

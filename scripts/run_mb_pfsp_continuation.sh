@@ -146,6 +146,7 @@ for ((iteration = START_ITERATION; iteration <= final_iteration; iteration++)); 
 
   "$NODE_BIN" scripts/evaluate_alpha_league_agents.js \
     --run-id "${iteration_id}_eval" \
+    --seed "${RUN_ID}:continuation_eval_shared" \
     --models-dir "$next_models_dir" \
     --team-preview-model "${next_preview_dir}/checkpoint.pt" \
     --preview-mode learned \

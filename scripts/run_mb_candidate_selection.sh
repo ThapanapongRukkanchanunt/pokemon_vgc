@@ -12,6 +12,7 @@ SOURCE_RUN_ID="${SOURCE_RUN_ID:-mb_alphastar_fairppo90}"
 SELECTION_ID="${SELECTION_ID:-${SOURCE_RUN_ID}_checkpoint_selection}"
 CANDIDATE_ITERATIONS="${CANDIDATE_ITERATIONS:-006 007 008 009 010}"
 FIXED_PREVIEW_ITERATION="${FIXED_PREVIEW_ITERATION:-010}"
+REFERENCE_ITERATION="${REFERENCE_ITERATION:-010}"
 GAMES_PER_PAIRING="${GAMES_PER_PAIRING:-5}"
 TOP_K="${TOP_K:-1}"
 ROLLOUT_MAX_DECISIONS="${ROLLOUT_MAX_DECISIONS:-120}"
@@ -49,7 +50,7 @@ done
 
 "$NODE_BIN" scripts/select_alpha_league_candidates.js \
   "${summary_args[@]}" \
-  --reference iter_010 \
+  --reference "iter_${REFERENCE_ITERATION}" \
   --out "${OUT_DIR}/${SELECTION_ID}_report.json" \
   --manifest "${OUT_DIR}/${SELECTION_ID}_manifest.json"
 

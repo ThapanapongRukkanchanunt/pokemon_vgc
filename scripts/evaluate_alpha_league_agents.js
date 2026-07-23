@@ -39,6 +39,7 @@ function parseArgs(argv) {
     torchDevice: process.env.POKEMON_RL_TORCH_DEVICE || null,
     sideSwaps: true,
     topK: 1,
+    megaPolicy: 'model',
     rolloutMaxDecisions: 120,
     compactLogs: false,
     deleteBattleLogs: false,
@@ -89,6 +90,8 @@ function parseArgs(argv) {
       args.sideSwaps = false;
     } else if (arg === '--top-k') {
       args.topK = parseInteger(argv[++i], '--top-k');
+    } else if (arg === '--mega-policy') {
+      args.megaPolicy = argv[++i].toLowerCase().replace(/-/g, '_');
     } else if (arg === '--rollout-max-decisions') {
       args.rolloutMaxDecisions = parseInteger(argv[++i], '--rollout-max-decisions');
     } else if (arg === '--compact-logs') {
@@ -114,6 +117,9 @@ function parseArgs(argv) {
     throw new Error('--opponent-preview-mode must be learned, random, or battle-model');
   }
   if (args.topK <= 0) throw new Error('--top-k must be > 0');
+  if (!['model', 'sole_usable'].includes(args.megaPolicy)) {
+    throw new Error('--mega-policy must be model or sole_usable');
+  }
   if (args.rolloutMaxDecisions <= 0) throw new Error('--rollout-max-decisions must be > 0');
   if (!args.seed) args.seed = args.runId;
   if (!args.logDir) args.logDir = path.join(repoRoot, 'logs', 'battles', `${args.runId}_eval`);
@@ -207,6 +213,30 @@ function compactResultArtifacts(result, deleteTraces) {
   }
 }
 
+function megaPolicyStats(result, rlSide) {
+  const stats = {decisions: 0, eligible: 0, applied: 0, chosen_mega: 0};
+  const tracePath = path.resolve(repoRoot, result.trace_jsonl_path);
+  if (!fs.existsSync(tracePath)) return stats;
+  for (const line of fs.readFileSync(tracePath, 'utf8').split(/\r?\n/)) {
+    if (!line) continue;
+    const row = JSON.parse(line);
+    if (row.side !== rlSide) continue;
+    const policy = row.agent_diagnostics?.ppo_policy;
+    if (!policy) continue;
+    stats.decisions += 1;
+    if (policy.mega_policy_eligible) stats.eligible += 1;
+    if (policy.mega_policy_applied) stats.applied += 1;
+    if (/\bmega\b/.test(String(row.chosen_action || ''))) stats.chosen_mega += 1;
+  }
+  return stats;
+}
+
+function addMegaPolicyStats(target, stats) {
+  for (const key of ['decisions', 'eligible', 'applied', 'chosen_mega']) {
+    target[key] += stats[key];
+  }
+}
+
 function createRlAgent({args, pool, team, role = 'agent'}) {
   const opponent = role === 'opponent';
   const previewMode = opponent ? args.opponentPreviewMode : args.previewMode;
@@ -223,6 +253,7 @@ function createRlAgent({args, pool, team, role = 'agent'}) {
     torchDevice: args.torchDevice,
     epsilon: 0,
     topK: args.topK,
+    megaPolicy: opponent ? 'model' : args.megaPolicy,
     sampleActions: false,
   });
 }
@@ -325,6 +356,7 @@ async function evaluate(args) {
   const outputs = ensureOutput(args);
   const table = new Map();
   const matchups = [];
+  const megaPolicy = {decisions: 0, eligible: 0, applied: 0, chosen_mega: 0};
   let gameIndex = 0;
 
   for (const agentTeam of agentTeams) {
@@ -364,6 +396,7 @@ async function evaluate(args) {
           const side = winnerSide(result.winner);
           const rlWon = (rlIsP1 && side === 'p1') || (!rlIsP1 && side === 'p2');
           const outcome = side === 'unknown' ? 'unknown' : (rlWon ? 'win' : 'loss');
+          addMegaPolicyStats(megaPolicy, megaPolicyStats(result, rlIsP1 ? 'p1' : 'p2'));
           record(table, agentTeam.id, outcome, rlIsP1 ? 'p1' : 'p2');
           if (outcome === 'win') matchup.wins += 1;
           else if (outcome === 'loss') matchup.losses += 1;
@@ -408,6 +441,16 @@ async function evaluate(args) {
     games_per_pairing: args.gamesPerPairing,
     side_swaps: args.sideSwaps,
     top_k: args.topK,
+    mega_policy: args.megaPolicy,
+    mega_policy_stats: {
+      ...megaPolicy,
+      applied_rate_when_eligible: megaPolicy.eligible ?
+        megaPolicy.applied / megaPolicy.eligible :
+        0,
+      chosen_mega_rate_when_eligible: megaPolicy.eligible ?
+        megaPolicy.chosen_mega / megaPolicy.eligible :
+        0,
+    },
     rollout_max_decisions: args.rolloutMaxDecisions,
     seed: args.seed,
     log_dir: args.deleteBattleLogs ? null : relativePath(args.logDir),

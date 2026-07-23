@@ -94,6 +94,43 @@ function topKIndices(scores, k) {
     .map(entry => entry.index);
 }
 
+function toId(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function isFaintedCondition(condition) {
+  return /\bfnt\b/.test(String(condition || ''));
+}
+
+function isUsableMegaHolder(pokemon, dex) {
+  if (!pokemon || isFaintedCondition(pokemon.condition)) return false;
+  const item = dex.items.get(pokemon.item);
+  if (!item?.megaStone) return false;
+  const speciesId = toId(String(pokemon.details || pokemon.ident || '').split(',')[0]);
+  return Object.keys(item.megaStone).some(species => toId(species) === speciesId);
+}
+
+function shouldForceSoleUsableMega({request, dex}) {
+  if (!(request.active || []).some(active => active?.canMegaEvo)) return false;
+  const usableMegaHolders = (request.side?.pokemon || [])
+    .filter(pokemon => isUsableMegaHolder(pokemon, dex));
+  return usableMegaHolders.length === 1;
+}
+
+function bestMegaActionIndex(legalActions, scores) {
+  let best = -1;
+  let bestScore = -Infinity;
+  legalActions.forEach((action, index) => {
+    if (!(action.decisions || []).some(decision => decision.mega)) return;
+    const score = finiteOr(scores[index], -Infinity);
+    if (score > bestScore) {
+      best = index;
+      bestScore = score;
+    }
+  });
+  return best;
+}
+
 function behaviorPolicyProbability({
   actionIndex,
   probabilities,
@@ -270,6 +307,7 @@ function createPpoPolicyAgent({
   topK = 1,
   fallbackConfidence = 0,
   useHmmBelief = true,
+  megaPolicy = 'model',
 } = {}) {
   const resolvedModelPath = resolveRepoPath(modelPath);
   const scorer = getScorer({modelPath: resolvedModelPath, pythonPath, device: torchDevice});
@@ -285,8 +323,12 @@ function createPpoPolicyAgent({
   const explorationEpsilon = clamp01(epsilon);
   const requestedTopK = Math.max(1, Number.isInteger(topK) ? topK : Number(topK) || 1);
   const previewSelectionMode = String(teamPreviewMode || 'model').toLowerCase();
+  const megaSelectionPolicy = String(megaPolicy || 'model').toLowerCase().replace(/-/g, '_');
   if (!['model', 'random'].includes(previewSelectionMode)) {
     throw new Error(`Unknown teamPreviewMode: ${teamPreviewMode}`);
+  }
+  if (!['model', 'sole_usable'].includes(megaSelectionPolicy)) {
+    throw new Error(`Unknown megaPolicy: ${megaPolicy}`);
   }
 
   async function scorePolicyRequest({side, request, battleState, diagnostics = null}) {
@@ -350,6 +392,7 @@ function createPpoPolicyAgent({
       const scored = await scorePolicyRequest({side, request, battleState: sideBattleState, diagnostics: hmmDiagnostics});
       if (!scored.choices.length) return null;
       const {
+        legalActions,
         choices,
         teamContext,
         requestIsTeamPreview,
@@ -397,6 +440,17 @@ function createPpoPolicyAgent({
         exploitationIndex = bestIndex(scores);
         actionIndex = exploitationIndex;
       }
+      const soleUsableMega = !randomPreview && !requestIsTeamPreview &&
+        shouldForceSoleUsableMega({request, dex: dexForFormat(formatId)});
+      let megaPolicyApplied = false;
+      if (soleUsableMega && megaSelectionPolicy === 'sole_usable') {
+        const megaIndex = bestMegaActionIndex(legalActions, scores);
+        if (megaIndex >= 0) {
+          exploitationIndex = megaIndex;
+          actionIndex = megaIndex;
+          megaPolicyApplied = true;
+        }
+      }
       let explored = false;
       if (
         !randomPreview &&
@@ -412,7 +466,7 @@ function createPpoPolicyAgent({
         probabilities,
         exploitationIndex,
         epsilon: explorationEpsilon,
-        sampled: shouldSample,
+        sampled: shouldSample && !megaPolicyApplied,
         uniform: randomPreview,
       });
       const logProb = Math.log(Math.max(selectedProbability, 1e-12));
@@ -428,6 +482,14 @@ function createPpoPolicyAgent({
           model_probability: modelProbability,
           epsilon: explorationEpsilon,
           epsilon_explored: explored,
+          mega_policy: megaSelectionPolicy,
+          mega_policy_eligible: soleUsableMega,
+          mega_policy_applied: megaPolicyApplied,
+          mega_policy_action: megaPolicyApplied ? choices[exploitationIndex] : undefined,
+          mega_policy_model_score: megaPolicyApplied ? scores[exploitationIndex] : undefined,
+          mega_policy_model_probability: megaPolicyApplied ?
+            (probabilities[exploitationIndex] || 0) :
+            undefined,
           team_preview_mode: requestIsTeamPreview ? previewSelectionMode : undefined,
           top_k: topIndices.map(index => ({
             index,
@@ -455,7 +517,7 @@ function createPpoPolicyAgent({
               error: candidate.error,
             })),
           } : undefined,
-          sampled: shouldSample,
+          sampled: shouldSample && !megaPolicyApplied,
           model_path: requestIsTeamPreview ? relativePreviewModelPath : relativeModelPath,
           battle_model_path: relativeModelPath,
           team_preview_model_path: relativePreviewModelPath,
@@ -470,8 +532,10 @@ function createPpoPolicyAgent({
 }
 
 module.exports = {
+  bestMegaActionIndex,
   behaviorPolicyProbability,
   closePpoPolicyScorers,
   createPpoPolicyAgent,
   exampleFromBattle,
+  shouldForceSoleUsableMega,
 };

@@ -70,6 +70,7 @@ async function run(args) {
         torchDevice: args.torchDevice,
         epsilon: 0,
         topK: 1,
+        megaPolicy: packageData.manifest.inference?.mega_policy || 'model',
         sampleActions: false,
       }),
       p2Agent: createAgent('heuristic', {formatId: pool.format_id}),

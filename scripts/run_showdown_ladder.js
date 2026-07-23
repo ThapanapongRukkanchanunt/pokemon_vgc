@@ -26,6 +26,7 @@ function parseArgs(argv) {
     password: process.env.SHOWDOWN_PASSWORD || null,
     games: 1,
     mode: 'ladder',
+    megaPolicy: null,
     pythonPath: process.env.POKEMON_RL_PYTHON || null,
     torchDevice: process.env.POKEMON_RL_TORCH_DEVICE || 'cpu',
     websocketUrl: 'wss://sim3.psim.us/showdown/websocket',
@@ -43,6 +44,7 @@ function parseArgs(argv) {
     else if (arg === '--username') args.username = argv[++i];
     else if (arg === '--games') args.games = parseInteger(argv[++i], '--games');
     else if (arg === '--mode') args.mode = argv[++i];
+    else if (arg === '--mega-policy') args.megaPolicy = argv[++i].toLowerCase().replace(/-/g, '_');
     else if (arg === '--python') args.pythonPath = argv[++i];
     else if (arg === '--torch-device') args.torchDevice = argv[++i];
     else if (arg === '--websocket-url') args.websocketUrl = argv[++i];
@@ -65,6 +67,9 @@ function parseArgs(argv) {
   }
   if (args.games < 0 || (args.mode === 'ladder' && args.games === 0)) {
     throw new Error('--games must be > 0 in ladder mode or >= 0 in challenge mode');
+  }
+  if (args.megaPolicy && !['model', 'sole_usable'].includes(args.megaPolicy)) {
+    throw new Error('--mega-policy must be model or sole_usable');
   }
   return args;
 }
@@ -107,6 +112,7 @@ async function main(args) {
     args.team = packageManifest.team_id;
     args.modelPath = packageData.battleModelPath;
     args.teamPreviewModel = packageData.previewModelPath;
+    args.megaPolicy = args.megaPolicy || packageManifest.inference?.mega_policy || 'model';
     team = {
       id: packageManifest.team_id,
       name: packageManifest.team_name || packageManifest.team_id,
@@ -127,6 +133,7 @@ async function main(args) {
   }
 
   const pool = packageData ? null : loadTeamPool();
+  args.megaPolicy = args.megaPolicy || 'model';
   team = team || findTeam(pool, args.team, {pick: items => items[0]});
   const modelPath = args.modelPath || checkpointFromManifest(args.modelManifest, team.id);
   for (const [label, filePath] of [['agent checkpoint', modelPath], ['preview checkpoint', args.teamPreviewModel]]) {
@@ -152,6 +159,7 @@ async function main(args) {
     torchDevice: args.torchDevice,
     epsilon: 0,
     topK: 1,
+    megaPolicy: args.megaPolicy,
     sampleActions: false,
   };
   const client = new ShowdownLadderClient({
@@ -178,6 +186,7 @@ async function main(args) {
     created_at: new Date().toISOString(),
     run_id: runId,
     mode: args.mode,
+    mega_policy: args.megaPolicy,
     format_id: formatId,
     team_id: team.id,
     model_path: path.relative(repoRoot, modelPath).replace(/\\/g, '/'),

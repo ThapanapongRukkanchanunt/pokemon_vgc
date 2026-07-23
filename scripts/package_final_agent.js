@@ -11,6 +11,7 @@ function parseArgs(argv) {
     teamSelection: null,
     previewSelection: null,
     outDir: path.join(repoRoot, 'models', 'torch', 'final_mb_agent'),
+    megaPolicy: 'model',
     overwrite: false,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -18,11 +19,15 @@ function parseArgs(argv) {
     if (arg === '--team-selection') args.teamSelection = path.resolve(repoRoot, argv[++i]);
     else if (arg === '--preview-selection') args.previewSelection = path.resolve(repoRoot, argv[++i]);
     else if (arg === '--out-dir') args.outDir = path.resolve(repoRoot, argv[++i]);
+    else if (arg === '--mega-policy') args.megaPolicy = argv[++i].toLowerCase().replace(/-/g, '_');
     else if (arg === '--overwrite') args.overwrite = true;
     else throw new Error(`Unexpected argument: ${arg}`);
   }
   if (!args.teamSelection || !args.previewSelection) {
     throw new Error('--team-selection and --preview-selection are required');
+  }
+  if (!['model', 'sole_usable'].includes(args.megaPolicy)) {
+    throw new Error('--mega-policy must be model or sole_usable');
   }
   return args;
 }
@@ -91,7 +96,12 @@ async function run(args) {
     battle_checkpoint: battleName,
     preview_checkpoint: previewName,
     team_import: teamName,
-    inference: {epsilon: 0, top_k: 1, sample_actions: false},
+    inference: {
+      epsilon: 0,
+      top_k: 1,
+      sample_actions: false,
+      mega_policy: args.megaPolicy,
+    },
     source: {
       team_selection: path.relative(repoRoot, args.teamSelection).replace(/\\/g, '/'),
       preview_selection: path.relative(repoRoot, args.previewSelection).replace(/\\/g, '/'),

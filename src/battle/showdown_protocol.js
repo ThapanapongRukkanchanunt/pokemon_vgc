@@ -32,6 +32,12 @@ function dexForFormat(formatId) {
   return Dex.forFormat(formatId);
 }
 
+function canonicalFormatId(formatId) {
+  const format = dexForFormat(formatId).formats.get(formatId);
+  if (!format?.exists) throw new Error(`Unknown Showdown format: ${formatId}`);
+  return format.id;
+}
+
 function spectatorLinesFromChunk(chunk) {
   if (!chunk.startsWith('update\n')) return [];
   const data = chunk.slice('update\n'.length);
@@ -46,6 +52,7 @@ function validateAndPackTeam({formatId, importText}) {
 }
 
 module.exports = {
+  canonicalFormatId,
   createBattleStream,
   dexForFormat,
   requestFromChunk,

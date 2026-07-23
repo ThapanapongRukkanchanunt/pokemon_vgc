@@ -1,7 +1,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const {dexForFormat, validateAndPackTeam} = require('../src/battle/showdown_protocol');
+const {canonicalFormatId, validateAndPackTeam} = require('../src/battle/showdown_protocol');
 const {findTeam, loadTeamPool} = require('../src/battle/run_battle');
 
 const repoRoot = path.join(__dirname, '..');
@@ -83,7 +83,7 @@ async function run(args) {
   const manifest = {
     created_at: new Date().toISOString(),
     package_version: 1,
-    format_id: dexForFormat(pool.format_id).id,
+    format_id: canonicalFormatId(pool.format_id),
     format_name: pool.format_name,
     regulation: pool.regulation,
     team_id: team.id,

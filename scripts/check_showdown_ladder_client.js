@@ -6,6 +6,9 @@ const {
   splitServerPayload,
   teamSummaryFromPacked,
 } = require('../src/showdown_ladder');
+const {canonicalFormatId} = require('../src/battle/showdown_protocol');
+
+assert.equal(canonicalFormatId('vgc'), 'gen9championsvgc2026regmb');
 
 const blocks = splitServerPayload('>battle-test-1\n|init|battle\n|turn|1\n>lobby\n|users|0');
 assert.equal(blocks.length, 2);

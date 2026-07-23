@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {closeTorchPolicyScorers, createAgent} = require('../src/agents');
 const {findTeam, loadTeamPool} = require('../src/battle/run_battle');
-const {dexForFormat, validateAndPackTeam} = require('../src/battle/showdown_protocol');
+const {canonicalFormatId, validateAndPackTeam} = require('../src/battle/showdown_protocol');
 const {loadFinalAgentPackage} = require('../src/final_agent_package');
 const {ShowdownLadderClient, teamSummaryFromSets} = require('../src/showdown_ladder');
 
@@ -110,7 +110,7 @@ async function main(args) {
       ),
     };
     importText = packageData.teamImportText;
-    formatId = dexForFormat(packageManifest.format_id).id;
+    formatId = canonicalFormatId(packageManifest.format_id);
   }
   const credentials = parseEnvFile(args.credentials);
   args.username = args.username || credentials.SHOWDOWN_USERNAME;
@@ -126,7 +126,7 @@ async function main(args) {
     if (!fs.existsSync(filePath)) throw new Error(`Missing ${label}: ${filePath}`);
   }
   importText = importText || fs.readFileSync(path.join(repoRoot, team.import_file), 'utf8');
-  formatId = formatId || dexForFormat(pool.format_id).id;
+  formatId = formatId || canonicalFormatId(pool.format_id);
   const packedTeam = validateAndPackTeam({formatId, importText});
   if (packageManifest?.format_id && packageManifest.format_id !== formatId) {
     throw new Error(`Package format ${packageManifest.format_id} does not match ${formatId}`);

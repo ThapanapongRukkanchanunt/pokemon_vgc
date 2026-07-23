@@ -131,8 +131,8 @@ stage="final_holdout"
 write_status running
 final_holdout_id="${CONTINUATION_RUN_ID}_final_holdout"
 final_holdout_dir="${CONT_ROOT}/final_holdout"
-final_team_selection="${final_holdout_dir}/${final_holdout_id}_final_team.json"
-if [[ "$RESUME" != "1" || ! -f "$final_team_selection" ]]; then
+provisional_team_selection="${final_holdout_dir}/${final_holdout_id}_final_team.json"
+if [[ "$RESUME" != "1" || ! -f "$provisional_team_selection" ]]; then
   SOURCE_RUN_ID="$CONTINUATION_RUN_ID" \
   HOLDOUT_ID="$final_holdout_id" \
   SELECTED_MANIFEST="$post_manifest" \
@@ -145,6 +145,25 @@ if [[ "$RESUME" != "1" || ! -f "$final_team_selection" ]]; then
   PYTHON_BIN="$PYTHON_BIN" \
   TORCH_INFERENCE_DEVICE="$TORCH_INFERENCE_DEVICE" \
   bash scripts/run_mb_holdout_evaluation.sh
+fi
+
+stage="finalists_evaluation"
+write_status running
+finalists_id="${CONTINUATION_RUN_ID}_finalists"
+finalists_dir="${CONT_ROOT}/finalists"
+final_team_selection="${finalists_dir}/${finalists_id}_final_team.json"
+if [[ "$RESUME" != "1" || ! -f "$final_team_selection" ]]; then
+  RUN_ID="$CONTINUATION_RUN_ID" \
+  FINALISTS_ID="$finalists_id" \
+  SOURCE_HOLDOUT_REPORT="${final_holdout_dir}/${final_holdout_id}_report.json" \
+  SELECTED_MANIFEST="${final_holdout_dir}/${final_holdout_id}_validated_manifest.json" \
+  PREVIEW_SELECTION="$post_preview_selection" \
+  BASELINE_MODELS_DIR="models/torch/${CONTINUATION_RUN_ID}/iter_010/agents" \
+  GAMES_PER_PAIRING=10 \
+  OUT_DIR="$finalists_dir" \
+  PYTHON_BIN="$PYTHON_BIN" \
+  TORCH_INFERENCE_DEVICE="$TORCH_INFERENCE_DEVICE" \
+  bash scripts/run_mb_finalists_evaluation.sh
 fi
 
 stage="package_final_agent"

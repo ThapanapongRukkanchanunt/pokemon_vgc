@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {Teams} = require('../vendor/pokemon-showdown/dist/sim/teams.js');
 const {applySpectatorLineToState, createPublicState} = require('./battle/public_state');
+const {replayHtml} = require('./battle/replay_export');
 const {inferTeamSpreads} = require('./team_preview/spread_prior');
 
 function toId(value) {
@@ -71,6 +72,15 @@ function partialSetFromPokeLine(line) {
   };
 }
 
+function isReplayLine(line) {
+  return ![
+    '|request|',
+    '|showteam|',
+    '|queryresponse|',
+    '|sentchoice|',
+  ].some(prefix => line.startsWith(prefix));
+}
+
 class LadderBattle {
   constructor({roomId, username, ownTeam, agent, send, log = () => {}}) {
     this.roomId = roomId;
@@ -91,6 +101,7 @@ class LadderBattle {
     this.result = null;
     this.timerStarted = false;
     this.otsAccepted = false;
+    this.replayLines = [];
   }
 
   roomSend(text) {
@@ -165,6 +176,7 @@ class LadderBattle {
 
   async handleLines(lines) {
     for (const line of lines) {
+      if (isReplayLine(line)) this.replayLines.push(line);
       if (line.startsWith('|player|')) {
         const [, , side, name] = line.split('|');
         if (toId(name) === toId(this.username)) this.ownSide = side;
@@ -224,10 +236,14 @@ class ShowdownLadderClient {
     formatId,
     ownTeam,
     agent,
+    agentFactory = null,
     maxBattles = 1,
     websocketUrl = 'wss://sim3.psim.us/showdown/websocket',
     loginUrl = 'https://play.pokemonshowdown.com/api/login',
     logPath = null,
+    mode = 'ladder',
+    replayDir = null,
+    rejectMismatchedChallenges = true,
   }) {
     this.username = username;
     this.password = password;
@@ -235,17 +251,25 @@ class ShowdownLadderClient {
     this.formatId = formatId;
     this.ownTeam = ownTeam;
     this.agent = agent;
+    this.agentFactory = agentFactory;
     this.maxBattles = maxBattles;
     this.websocketUrl = websocketUrl;
     this.loginUrl = loginUrl;
     this.logPath = logPath;
+    this.mode = mode;
+    this.replayDir = replayDir;
+    this.rejectMismatchedChallenges = rejectMismatchedChallenges;
     this.rooms = new Map();
     this.completedBattles = 0;
     this.results = {wins: 0, losses: 0, ties: 0};
     this.loggedIn = false;
     this.searching = false;
+    this.challengeActions = new Map();
     this.queue = Promise.resolve();
     this.done = null;
+    if (!['ladder', 'challenge'].includes(this.mode)) {
+      throw new Error(`Unknown Showdown client mode: ${this.mode}`);
+    }
   }
 
   log(event) {
@@ -275,11 +299,44 @@ class ShowdownLadderClient {
   }
 
   startSearch() {
+    if (this.mode !== 'ladder') return;
     if (!this.loggedIn || this.searching || this.completedBattles >= this.maxBattles) return;
     this.searching = true;
     this.send(`|/utm ${this.packedTeam}`);
     this.send(`|/search ${this.formatId}`);
     this.log({type: 'search_started', format_id: this.formatId});
+  }
+
+  handleChallenges(update) {
+    if (this.mode !== 'challenge' || !this.loggedIn) return;
+    const challenges = update?.challengesFrom || {};
+    const activeIds = new Set(Object.keys(challenges).map(toId));
+    for (const challengerId of this.challengeActions.keys()) {
+      if (!activeIds.has(challengerId)) this.challengeActions.delete(challengerId);
+    }
+    for (const [challenger, formatId] of Object.entries(challenges)) {
+      const challengerId = toId(challenger);
+      if (!challengerId || this.challengeActions.has(challengerId)) continue;
+      if (toId(formatId) === toId(this.formatId)) {
+        this.send(`|/utm ${this.packedTeam}`);
+        this.send(`|/accept ${challenger}`);
+        this.challengeActions.set(challengerId, 'accepted');
+        this.log({
+          type: 'challenge_accepted',
+          challenger,
+          format_id: formatId,
+        });
+      } else if (this.rejectMismatchedChallenges) {
+        this.send(`|/reject ${challenger}`);
+        this.challengeActions.set(challengerId, 'rejected');
+        this.log({
+          type: 'challenge_rejected',
+          challenger,
+          format_id: formatId,
+          expected_format_id: this.formatId,
+        });
+      }
+    }
   }
 
   async handleGlobal(lines) {
@@ -292,7 +349,11 @@ class ShowdownLadderClient {
         if (named && toId(parts[2]) === toId(this.username)) {
           this.loggedIn = true;
           this.log({type: 'login_succeeded', username: this.username});
-          this.startSearch();
+          if (this.mode === 'ladder') {
+            this.startSearch();
+          } else {
+            this.log({type: 'challenge_listening', format_id: this.formatId});
+          }
         }
       } else if (line.startsWith('|nametaken|')) {
         throw new Error(`Showdown login failed: ${line.split('|').slice(3).join('|')}`);
@@ -303,8 +364,26 @@ class ShowdownLadderClient {
       } else if (line.startsWith('|updatesearch|')) {
         const update = JSON.parse(line.slice('|updatesearch|'.length));
         this.searching = Array.isArray(update.searching) && update.searching.includes(this.formatId);
+      } else if (line.startsWith('|updatechallenges|')) {
+        this.handleChallenges(JSON.parse(line.slice('|updatechallenges|'.length)));
       }
     }
+  }
+
+  saveLocalReplay(room) {
+    if (!this.replayDir) return null;
+    fs.mkdirSync(this.replayDir, {recursive: true});
+    const safeRoomId = room.roomId.replace(/[^a-zA-Z0-9._-]+/g, '_');
+    const protocolPath = path.join(this.replayDir, `${safeRoomId}.protocol.txt`);
+    const replayPath = path.join(this.replayDir, `${safeRoomId}.replay.html`);
+    const replayLog = `${room.replayLines.join('\n')}\n`;
+    fs.writeFileSync(protocolPath, replayLog, 'utf8');
+    fs.writeFileSync(replayPath, replayHtml({
+      title: room.roomId,
+      replayLog,
+      replayId: room.roomId.replace(/^battle-/, ''),
+    }), 'utf8');
+    return {protocolPath, replayPath};
   }
 
   async handleRoom(roomId, lines) {
@@ -315,7 +394,7 @@ class ShowdownLadderClient {
         roomId,
         username: this.username,
         ownTeam: this.ownTeam,
-        agent: this.agent,
+        agent: this.agentFactory ? this.agentFactory() : this.agent,
         send: message => this.send(message),
         log: event => this.log(event),
       });
@@ -330,10 +409,34 @@ class ShowdownLadderClient {
     if (room.result === 'win') this.results.wins += 1;
     else if (room.result === 'loss') this.results.losses += 1;
     else this.results.ties += 1;
-    this.log({type: 'battle_finished', room_id: roomId, result: room.result, turns: room.turns});
-    if (this.completedBattles >= this.maxBattles) {
+    let localReplay = null;
+    let localReplayError = null;
+    try {
+      localReplay = this.saveLocalReplay(room);
+    } catch (error) {
+      localReplayError = error.stack || error.message;
+    }
+    let serverReplayRequested = false;
+    try {
+      room.roomSend('/savereplay');
+      serverReplayRequested = true;
+    } catch (error) {
+      this.log({type: 'server_replay_error', room_id: roomId, error: error.stack || error.message});
+    }
+    this.log({
+      type: 'battle_finished',
+      room_id: roomId,
+      result: room.result,
+      turns: room.turns,
+      server_replay_requested: serverReplayRequested,
+      replay_url: `https://replay.pokemonshowdown.com/${roomId.replace(/^battle-/, '')}`,
+      local_protocol_path: localReplay?.protocolPath || null,
+      local_replay_path: localReplay?.replayPath || null,
+      local_replay_error: localReplayError,
+    });
+    if (this.maxBattles > 0 && this.completedBattles >= this.maxBattles) {
       this.finish();
-    } else {
+    } else if (this.mode === 'ladder') {
       setTimeout(() => this.startSearch(), 1000);
     }
   }
@@ -346,13 +449,17 @@ class ShowdownLadderClient {
     }
   }
 
-  finish() {
+  finish(reason = 'completed') {
     if (!this.done) return;
-    const summary = {battles: this.completedBattles, ...this.results};
+    const summary = {battles: this.completedBattles, ...this.results, reason};
     const {resolve} = this.done;
     this.done = null;
     if (this.ws?.readyState === WebSocket.OPEN) this.ws.close(1000, 'completed');
     resolve(summary);
+  }
+
+  stop(reason = 'stopped') {
+    this.finish(reason);
   }
 
   run() {

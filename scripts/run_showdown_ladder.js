@@ -25,6 +25,7 @@ function parseArgs(argv) {
     username: process.env.SHOWDOWN_USERNAME || null,
     password: process.env.SHOWDOWN_PASSWORD || null,
     games: 1,
+    mode: 'ladder',
     pythonPath: process.env.POKEMON_RL_PYTHON || null,
     torchDevice: process.env.POKEMON_RL_TORCH_DEVICE || 'cpu',
     websocketUrl: 'wss://sim3.psim.us/showdown/websocket',
@@ -41,6 +42,7 @@ function parseArgs(argv) {
     else if (arg === '--credentials') args.credentials = path.resolve(repoRoot, argv[++i]);
     else if (arg === '--username') args.username = argv[++i];
     else if (arg === '--games') args.games = parseInteger(argv[++i], '--games');
+    else if (arg === '--mode') args.mode = argv[++i];
     else if (arg === '--python') args.pythonPath = argv[++i];
     else if (arg === '--torch-device') args.torchDevice = argv[++i];
     else if (arg === '--websocket-url') args.websocketUrl = argv[++i];
@@ -58,7 +60,12 @@ function parseArgs(argv) {
     }
     if (!args.teamPreviewModel) throw new Error('--team-preview-model is required');
   }
-  if (args.games <= 0) throw new Error('--games must be > 0');
+  if (!['ladder', 'challenge'].includes(args.mode)) {
+    throw new Error('--mode must be ladder or challenge');
+  }
+  if (args.games < 0 || (args.mode === 'ladder' && args.games === 0)) {
+    throw new Error('--games must be > 0 in ladder mode or >= 0 in challenge mode');
+  }
   return args;
 }
 
@@ -131,12 +138,13 @@ async function main(args) {
   if (packageManifest?.format_id && packageManifest.format_id !== formatId) {
     throw new Error(`Package format ${packageManifest.format_id} does not match ${formatId}`);
   }
-  const runId = `ladder_${team.id}_${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  const runId = `${args.mode}_${team.id}_${new Date().toISOString().replace(/[:.]/g, '-')}`;
   fs.mkdirSync(args.logDir, {recursive: true});
   const logPath = path.join(args.logDir, `${runId}.jsonl`);
   const summaryPath = path.join(args.logDir, `${runId}.summary.json`);
+  const replayDir = path.join(args.logDir, runId, 'replays');
 
-  const agent = createAgent('final_rl', {
+  const agentOptions = {
     formatId,
     modelPath,
     teamPreviewModelPath: args.teamPreviewModel,
@@ -145,29 +153,38 @@ async function main(args) {
     epsilon: 0,
     topK: 1,
     sampleActions: false,
-  });
+  };
   const client = new ShowdownLadderClient({
     username: args.username,
     password: args.password,
     packedTeam,
     formatId,
     ownTeam: team,
-    agent,
+    agentFactory: () => createAgent('final_rl', agentOptions),
     maxBattles: args.games,
+    mode: args.mode,
     websocketUrl: args.websocketUrl,
     loginUrl: args.loginUrl,
     logPath,
+    replayDir,
   });
+  const stop = signal => client.stop(signal);
+  process.once('SIGINT', stop);
+  process.once('SIGTERM', stop);
   const result = await client.run();
+  process.removeListener('SIGINT', stop);
+  process.removeListener('SIGTERM', stop);
   const summary = {
     created_at: new Date().toISOString(),
     run_id: runId,
+    mode: args.mode,
     format_id: formatId,
     team_id: team.id,
     model_path: path.relative(repoRoot, modelPath).replace(/\\/g, '/'),
     team_preview_model: path.relative(repoRoot, args.teamPreviewModel).replace(/\\/g, '/'),
     package_manifest: packageData ? path.relative(repoRoot, packageData.manifestPath).replace(/\\/g, '/') : null,
     log_path: path.relative(repoRoot, logPath).replace(/\\/g, '/'),
+    replay_dir: path.relative(repoRoot, replayDir).replace(/\\/g, '/'),
     ...result,
   };
   fs.writeFileSync(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');

@@ -1,8 +1,11 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const {Teams} = require('../vendor/pokemon-showdown/dist/sim/teams.js');
 const {
   LadderBattle,
+  ShowdownLadderClient,
   splitServerPayload,
   teamSummaryFromPacked,
 } = require('../src/showdown_ladder');
@@ -75,7 +78,44 @@ const previewRequest = {
   assert.equal(receivedState.teams.p1.id, 'mb-006');
   assert.equal(receivedState.teams.p2.id, 'ladder-opponent');
   assert.equal(receivedState.teams.p2.team_summary.sets.length, 6);
+
+  const challengeSent = [];
+  const replayDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vgc-showdown-replays-'));
+  const challengeClient = new ShowdownLadderClient({
+    username: 'VGC Bot',
+    password: 'not-used',
+    packedTeam: packed,
+    formatId: 'gen9championsvgc2026regmb',
+    ownTeam: {id: 'mb-006', name: 'Test team', team_summary: summary},
+    agent: {async chooseAction() { return null; }},
+    mode: 'challenge',
+    maxBattles: 0,
+    replayDir,
+  });
+  challengeClient.send = message => challengeSent.push(message);
+  await challengeClient.handleGlobal([
+    '|updateuser|VGC Bot|1|0',
+    '|updatechallenges|{"challengesFrom":{"Alice":"gen9championsvgc2026regmb","Bob":"gen9ou"},"challengeTo":null}',
+  ]);
+  assert.ok(challengeSent.includes(`|/utm ${packed}`));
+  assert.ok(challengeSent.includes('|/accept Alice'));
+  assert.ok(challengeSent.includes('|/reject Bob'));
+  assert.ok(!challengeSent.some(message => message.includes('/search')));
+
+  await challengeClient.handleRoom('battle-test-challenge-1', [
+    '|init|battle',
+    '|player|p1|VGC Bot|1',
+    '|player|p2|Alice|1',
+    '|start',
+    '|win|VGC Bot',
+  ]);
+  assert.ok(challengeSent.includes('battle-test-challenge-1|/savereplay'));
+  assert.ok(fs.existsSync(path.join(replayDir, 'battle-test-challenge-1.protocol.txt')));
+  assert.ok(fs.existsSync(path.join(replayDir, 'battle-test-challenge-1.replay.html')));
+  fs.rmSync(replayDir, {recursive: true, force: true});
+
   console.log('PASS Showdown payload, OTS, timer, rqid choice, and packed-team handling');
+  console.log('PASS challenge-only filtering, no ladder search, and local/server replay saving');
 })().catch(error => {
   console.error(error.stack || error.message);
   process.exit(1);

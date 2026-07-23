@@ -100,6 +100,10 @@ const previewRequest = {
   assert.ok(challengeSent.includes(`|/utm ${packed}`));
   assert.ok(challengeSent.includes('|/accept Alice'));
   assert.ok(challengeSent.includes('|/reject Bob'));
+  await challengeClient.handleGlobal([
+    '|pm| Charlie|!VGC Bot|/challenge gen9championsvgc2026regmb|gen9championsvgc2026regmb|||',
+  ]);
+  assert.ok(challengeSent.includes('|/accept Charlie'));
   assert.ok(!challengeSent.some(message => message.includes('/search')));
 
   await challengeClient.handleRoom('battle-test-challenge-1', [

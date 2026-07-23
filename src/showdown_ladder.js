@@ -102,6 +102,7 @@ class LadderBattle {
     this.timerStarted = false;
     this.otsAccepted = false;
     this.replayLines = [];
+    this.opponentName = null;
   }
 
   roomSend(text) {
@@ -179,7 +180,11 @@ class LadderBattle {
       if (isReplayLine(line)) this.replayLines.push(line);
       if (line.startsWith('|player|')) {
         const [, , side, name] = line.split('|');
-        if (toId(name) === toId(this.username)) this.ownSide = side;
+        if (toId(name) === toId(this.username)) {
+          this.ownSide = side;
+        } else if (name) {
+          this.opponentName = name;
+        }
       } else if (line.startsWith('|showteam|')) {
         const payload = line.slice('|showteam|'.length);
         const separator = payload.indexOf('|');
@@ -307,6 +312,31 @@ class ShowdownLadderClient {
     this.log({type: 'search_started', format_id: this.formatId});
   }
 
+  handleChallenge(challenger, formatId) {
+    if (this.mode !== 'challenge' || !this.loggedIn) return;
+    const challengerId = toId(challenger);
+    if (!challengerId || this.challengeActions.has(challengerId)) return;
+    if (toId(formatId) === toId(this.formatId)) {
+      this.send(`|/utm ${this.packedTeam}`);
+      this.send(`|/accept ${challenger}`);
+      this.challengeActions.set(challengerId, 'accepted');
+      this.log({
+        type: 'challenge_accepted',
+        challenger,
+        format_id: formatId,
+      });
+    } else if (this.rejectMismatchedChallenges) {
+      this.send(`|/reject ${challenger}`);
+      this.challengeActions.set(challengerId, 'rejected');
+      this.log({
+        type: 'challenge_rejected',
+        challenger,
+        format_id: formatId,
+        expected_format_id: this.formatId,
+      });
+    }
+  }
+
   handleChallenges(update) {
     if (this.mode !== 'challenge' || !this.loggedIn) return;
     const challenges = update?.challengesFrom || {};
@@ -315,28 +345,17 @@ class ShowdownLadderClient {
       if (!activeIds.has(challengerId)) this.challengeActions.delete(challengerId);
     }
     for (const [challenger, formatId] of Object.entries(challenges)) {
-      const challengerId = toId(challenger);
-      if (!challengerId || this.challengeActions.has(challengerId)) continue;
-      if (toId(formatId) === toId(this.formatId)) {
-        this.send(`|/utm ${this.packedTeam}`);
-        this.send(`|/accept ${challenger}`);
-        this.challengeActions.set(challengerId, 'accepted');
-        this.log({
-          type: 'challenge_accepted',
-          challenger,
-          format_id: formatId,
-        });
-      } else if (this.rejectMismatchedChallenges) {
-        this.send(`|/reject ${challenger}`);
-        this.challengeActions.set(challengerId, 'rejected');
-        this.log({
-          type: 'challenge_rejected',
-          challenger,
-          format_id: formatId,
-          expected_format_id: this.formatId,
-        });
-      }
+      this.handleChallenge(challenger, formatId);
     }
+  }
+
+  handlePmChallenge(line) {
+    const parts = line.split('|');
+    const challenger = (parts[2] || '').trim();
+    const command = parts[4] || '';
+    const match = command.match(/^\/challenge\s+([a-z0-9]+)$/i);
+    if (!match) return;
+    this.handleChallenge(challenger, parts[5] || match[1]);
   }
 
   async handleGlobal(lines) {
@@ -366,6 +385,8 @@ class ShowdownLadderClient {
         this.searching = Array.isArray(update.searching) && update.searching.includes(this.formatId);
       } else if (line.startsWith('|updatechallenges|')) {
         this.handleChallenges(JSON.parse(line.slice('|updatechallenges|'.length)));
+      } else if (line.startsWith('|pm|')) {
+        this.handlePmChallenge(line);
       }
     }
   }
@@ -403,6 +424,7 @@ class ShowdownLadderClient {
     }
     if (!room) return;
     await room.handleLines(lines);
+    if (room.opponentName) this.challengeActions.delete(toId(room.opponentName));
     if (!room.finished || room.reported) return;
     room.reported = true;
     this.completedBattles += 1;

@@ -9,22 +9,8 @@ a local protocol transcript and standalone HTML replay under the run directory
 in `logs/ladder/`.
 
 ```bash
-screen -dmS mb_challenges bash -lc '
-  cd ~/pokemon_vgc &&
-  source .venv_torch/bin/activate &&
-  while true; do
-    node scripts/run_showdown_ladder.js \
-      --mode challenge \
-      --package models/torch/final_mb_agent \
-      --credentials showdown.env \
-      --games 0 \
-      --python .venv_torch/bin/python \
-      --torch-device cpu
-    status=$?
-    if [ "$status" -eq 0 ]; then break; fi
-    sleep 10
-  done
-'
+cd ~/pokemon_vgc
+screen -dmS mb_challenges bash scripts/run_showdown_challenge_agent.sh
 ```
 
 Attach with `screen -r mb_challenges`. Stop gracefully with `Ctrl-C`; the

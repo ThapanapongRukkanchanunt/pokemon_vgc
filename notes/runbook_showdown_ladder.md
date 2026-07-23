@@ -45,6 +45,11 @@ and SHA-256 hashes for both checkpoints and the team import. The ladder command
 verifies all three hashes and uses the packaged `team.txt`, so the package can
 be moved without depending on the source run's roster files.
 
+Showdown open team sheets omit nature and EVs. For exact visible fingerprints
+that occur in the curated M-B pool, the client fills those fields from the
+matching high-placing team as an empirical prior. Unmatched sets keep their
+spread unknown.
+
 Run the package acceptance battle before laddering:
 
 ```bash

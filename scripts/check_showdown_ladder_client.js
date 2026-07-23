@@ -19,6 +19,13 @@ assert.equal(summary.sets.length, 6);
 assert.ok(summary.sets[0].nature);
 assert.ok(summary.sets[0].evs);
 
+const otsPacked = Teams.pack(Teams.import(importText).map(set => ({...set, nature: '', evs: null, ivs: null})));
+const otsSummary = teamSummaryFromPacked(otsPacked);
+assert.equal(otsSummary.sets[0].nature, summary.sets[0].nature);
+assert.equal(otsSummary.sets[0].evs, summary.sets[0].evs);
+assert.equal(otsSummary.sets[0].spread_source, 'curated_mb_prior');
+assert.equal(otsSummary.sets[0].spread_confidence, 'high');
+
 const sent = [];
 let receivedState = null;
 const battle = new LadderBattle({

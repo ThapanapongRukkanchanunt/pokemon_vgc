@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {Teams} = require('../vendor/pokemon-showdown/dist/sim/teams.js');
 const {applySpectatorLineToState, createPublicState} = require('./battle/public_state');
+const {inferTeamSpreads} = require('./team_preview/spread_prior');
 
 function toId(value) {
   return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -30,7 +31,7 @@ function evString(evs) {
 }
 
 function teamSummaryFromSets(sets, id = 'ladder-opponent', name = 'Ladder opponent') {
-  const normalizedSets = (sets || []).map((set, index) => ({
+  const normalizedSets = inferTeamSpreads((sets || []).map((set, index) => ({
     slot: index + 1,
     species: set.species || set.name || 'Unknown',
     item: set.item || '',
@@ -38,7 +39,7 @@ function teamSummaryFromSets(sets, id = 'ladder-opponent', name = 'Ladder oppone
     nature: set.nature || '',
     evs: typeof set.evs === 'string' ? set.evs : evString(set.evs),
     moves: set.moves || [],
-  }));
+  })));
   const megas = normalizedSets
     .map(set => set.species)
     .filter(species => /-mega(?:-|$)/i.test(species));
@@ -104,8 +105,7 @@ class LadderBattle {
     if (side === this.ownSide) return this.ownTeam;
     return this.dynamicTeams[side] || {
       id: 'ladder-opponent',
-      name: 'Ladder opponent',
-      sets: this.partialSets[side],
+      team_summary: teamSummaryFromSets(this.partialSets[side]),
     };
   }
 

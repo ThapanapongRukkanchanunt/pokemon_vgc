@@ -9,7 +9,7 @@ const {
   makeRng,
   runBattle,
 } = require('../src/battle/run_battle');
-const {validateAndPackTeam} = require('../src/battle/showdown_protocol');
+const {canonicalFormatId, validateAndPackTeam} = require('../src/battle/showdown_protocol');
 const {loadFinalAgentPackage} = require('../src/final_agent_package');
 
 const repoRoot = path.join(__dirname, '..');
@@ -35,8 +35,9 @@ function parseArgs(argv) {
 async function run(args) {
   const packageData = loadFinalAgentPackage(args.packageDir);
   const pool = loadTeamPool();
-  if (packageData.manifest.format_id !== pool.format_id) {
-    throw new Error(`Package format ${packageData.manifest.format_id} does not match ${pool.format_id}`);
+  const poolFormatId = canonicalFormatId(pool.format_id);
+  if (canonicalFormatId(packageData.manifest.format_id) !== poolFormatId) {
+    throw new Error(`Package format ${packageData.manifest.format_id} does not match ${poolFormatId}`);
   }
   validateAndPackTeam({formatId: pool.format_id, importText: packageData.teamImportText});
 

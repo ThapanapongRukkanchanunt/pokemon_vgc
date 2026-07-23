@@ -4,11 +4,12 @@ const path = require('node:path');
 const repoRoot = path.join(__dirname, '..');
 
 function parseArgs(argv) {
-  const args = {candidates: [], baselines: [], out: null, selection: null};
+  const args = {candidates: [], baselines: [], out: null, selection: null, fallback: null};
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--candidate') args.candidates.push(argv[++i]);
     else if (arg === '--baseline') args.baselines.push(argv[++i]);
+    else if (arg === '--fallback') args.fallback = argv[++i];
     else if (arg === '--out') args.out = path.resolve(repoRoot, argv[++i]);
     else if (arg === '--selection') args.selection = path.resolve(repoRoot, argv[++i]);
     else throw new Error(`Unexpected argument: ${arg}`);
@@ -16,6 +17,19 @@ function parseArgs(argv) {
   if (args.candidates.length < 2) throw new Error('Pass at least two --candidate values');
   if (!args.out || !args.selection) throw new Error('--out and --selection are required');
   return args;
+}
+
+function exactTwoSidedBinomial(left, right) {
+  const trials = left + right;
+  if (!trials) return 1;
+  const tail = Math.min(left, right);
+  let probability = Math.pow(0.5, trials);
+  let cumulative = probability;
+  for (let successes = 1; successes <= tail; successes++) {
+    probability *= (trials - successes + 1) / successes;
+    cumulative += probability;
+  }
+  return Math.min(1, 2 * cumulative);
 }
 
 function parseEntry(value, needsCheckpoint) {
@@ -70,6 +84,8 @@ function paired(candidate, reference) {
     candidate_only_wins: candidateOnly,
     reference_only_wins: referenceOnly,
     net_paired_wins: candidateOnly - referenceOnly,
+    discordant_games: candidateOnly + referenceOnly,
+    exact_mcnemar_p: exactTwoSidedBinomial(candidateOnly, referenceOnly),
   };
 }
 
@@ -92,7 +108,25 @@ function run(args) {
       throw new Error(`${entry.id} does not contain the same paired games`);
     }
   }
-  const selected = [...candidates].sort((a, b) => b.wins - a.wins || b.id.localeCompare(a.id))[0];
+  const rankedCandidates = [...candidates].sort((a, b) => b.wins - a.wins || b.id.localeCompare(a.id));
+  let selected = rankedCandidates[0];
+  let fallback = null;
+  let promotion = null;
+  if (args.fallback) {
+    fallback = candidates.find(candidate => candidate.id === args.fallback);
+    if (!fallback) throw new Error(`Unknown --fallback candidate: ${args.fallback}`);
+    const challenger = rankedCandidates.find(candidate => candidate.id !== fallback.id) || fallback;
+    const comparison = paired(challenger, fallback);
+    const promoted = challenger.wins > fallback.wins && comparison.exact_mcnemar_p < 0.05;
+    selected = promoted ? challenger : fallback;
+    promotion = {
+      challenger: challenger.id,
+      fallback: fallback.id,
+      promoted,
+      rule: 'strictly_more_wins_and_paired_exact_mcnemar_p_below_0.05',
+      comparison,
+    };
+  }
   const rows = [...candidates, ...baselines].map(entry => ({
     id: entry.id,
     eligible: entry.eligible,
@@ -109,6 +143,8 @@ function run(args) {
     method: 'common_seed_universal_preview_selection',
     selected: selected.id,
     selected_checkpoint: selected.checkpoint,
+    fallback: fallback?.id || null,
+    promotion,
     results: rows,
   };
   const selection = {

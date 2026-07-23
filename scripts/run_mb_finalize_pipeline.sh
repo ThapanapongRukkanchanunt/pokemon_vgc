@@ -16,6 +16,7 @@ WAIT_SECONDS="${WAIT_SECONDS:-60}"
 
 SOURCE_ROOT="experiments/mb_alpha_league/${SOURCE_RUN_ID}"
 CONT_ROOT="experiments/mb_alpha_league/${CONTINUATION_RUN_ID}"
+ORIGINAL_PREVIEW_MODEL="models/torch/${SOURCE_RUN_ID}/iter_010/universal_preview/checkpoint.pt"
 STATUS_DIR="${CONT_ROOT}/finalization"
 STATUS_FILE="${STATUS_DIR}/status.json"
 mkdir -p "$STATUS_DIR"
@@ -118,6 +119,8 @@ if [[ "$RESUME" != "1" || ! -f "$post_preview_selection" ]]; then
   SELECTION_ID="$post_preview_id" \
   MODEL_MANIFEST="$post_manifest" \
   PREVIEW_ITERATIONS="011 012 013 014 015" \
+  FALLBACK_PREVIEW_CHECKPOINT="$ORIGINAL_PREVIEW_MODEL" \
+  FALLBACK_PREVIEW_ID="preview_original_iter_010" \
   GAMES_PER_PAIRING=3 \
   PYTHON_BIN="$PYTHON_BIN" \
   TORCH_INFERENCE_DEVICE="$TORCH_INFERENCE_DEVICE" \
